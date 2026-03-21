@@ -16,7 +16,7 @@ A state-of-the-art Generative Deep Learning model designed to hallucinate entire
 
 ---
 
-## 📸 The 3D Dashboard (`app.py`)
+## 📸 The 3D Dashboard (`streamlit_app.py`)
 
 The project includes a stunning Streamlit Web Application that makes interacting with the neural network frictionless.
 
@@ -26,7 +26,7 @@ The project includes a stunning Streamlit Web Application that makes interacting
    ```
 2. **Launch the Engine:**
    ```bash
-   python -m streamlit run app.py
+   python -m streamlit run streamlit_app.py
    ```
 3. **Usage:** Simply select your base elements, choose how many molecules to generate, adjust the creativity temperature, and click **Generate**. The model will output interactive 3D structures in real-time.
 
