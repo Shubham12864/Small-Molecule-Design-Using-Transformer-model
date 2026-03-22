@@ -7,3 +7,5 @@ streamlit
 pandas
 py3Dmol
 stmol
+plotly
+scikit-learn

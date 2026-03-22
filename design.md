@@ -114,9 +114,9 @@
                              │
               ┌──────────────┼──────────────┐
               ▼              ▼              ▼
-         Training       Generation     Properties
-         (loss →        (argmax →      (RDKit →
-          backprop)      SMILES)       MW, LogP)
+         Training       Generation     AI/ML Analytics
+         (loss →        (Sampling →    (Morgan FPs →
+          backprop)      SMILES)       t-SNE / Similarity)
 ```
 
 ---
@@ -137,7 +137,7 @@ Transformers excel at sequence modelling because of **self-attention**, which le
 |------------------------|----------------------------------------------------|-------------|
 | Token Embedding         | Converts token IDs to dense vectors               | vocab × 64  |
 | Positional Encoding     | Adds position info (sinusoidal, not learned)      | max_len × 64|
-| Transformer Encoder     | Self-attention + feed-forward (2 layers)          | ~40K params |
+| Transformer Encoder     | Self-attention + feed-forward (2 layers)          | ~60K params |
 | Linear Head             | Projects hidden states to vocabulary logits        | 64 × vocab  |
 
 ### Causal Masking
@@ -152,40 +152,53 @@ We use an upper-triangular mask so each token can only attend to **previous** to
 
 ---
 
-## 5. Limitations
+---
 
-1. **Small model capacity:** With ~50K parameters and 2 layers, the model has limited ability to capture complex molecular patterns.
+## 5. AI / ML Integration (Frontend)
 
-2. **Greedy decoding:** Using argmax means the model may generate repetitive sequences. Sampling or beam search would produce more diverse outputs.
+The Streamlit frontend integrates post-generation analytics to evaluate and visualize the quality of the generated molecules.
 
-3. **No chemical constraints:** The model learns syntax statistically but doesn't enforce chemical rules (valence, aromaticity). Invalid molecules can still be generated.
+### Fingerprint Computation
+All analytics are driven by **Morgan Fingerprints** (radius 2, 2048 bits). These bit vectors represent the presence or absence of specific substructures in the molecule, allowing for mathematical comparison of chemical features.
 
-4. **Small training data:** The included dataset of 100 molecules is for demonstration. Real-world performance requires datasets of 10K–1M+ molecules.
+### Batch Analytics & Diversity
+- **Validity Rate:** Measures the grammatical correctness of the model by tracking the ratio of valid SMILES to total generator attempts.
+- **Diversity Score:** Calculated as the average pairwise **Tanimoto distance** ($1 - \text{Tanimoto Similarity}$) across all generated valid molecules. A score near $1.0$ indicates high creativity and variance, while near $0.0$ implies repeated outputs.
 
-5. **Character-level tokenization:** Treats multi-character atoms (like `Br`, `Cl`) as separate characters, which can lead to fragmentation. A SMILES-aware tokenizer would be more accurate.
+### Chemical Space (t-SNE)
+High-dimensional Morgan fingerprints (2048-D) are reduced to 2D coordinates using **t-Distributed Stochastic Neighbor Embedding (t-SNE)**. This interactive scatter plot maps the generated molecules against a reference set of FDA-approved known drugs, visually indicating whether the AI's outputs occupy similar chemical space to real medicines.
 
-6. **No property-guided generation:** Generation is unconditional — we cannot steer the model to generate molecules with specific properties.
-
-7. **Encoder-only architecture:** While a decoder-only or encoder-decoder architecture is more traditional for sequence generation, we use a causal-masked encoder which works but is less conventional.
+### Known Drug Comparison
+For each generated molecule, the system computes Tanimoto similarity against the reference dataset of known drugs. It surfaces the top matches, helping to identify the potential therapeutic category (e.g., Antihistamine, Antihypertensive) of the novel molecule.
 
 ---
 
-## 6. Future Improvements
+## 6. Limitations
 
-1. **Larger dataset:** Train on the full ZINC database (250K+ molecules) for better generalization.
+1. **Small model capacity:** With ~60K parameters and 2 layers, the model has limited ability to capture complex molecular patterns.
 
-2. **Temperature sampling / top-k / nucleus sampling:** Replace greedy decoding for more diverse and creative generation.
+2. **No chemical constraints:** The model learns syntax statistically but doesn't enforce chemical rules (valence, aromaticity). Invalid molecules can still be generated (though the frontend filters them).
 
-3. **SMILES-aware tokenizer:** Use regex-based tokenization to properly handle multi-character tokens like `Br`, `Cl`, `[NH]`, `@@`.
+3. **Small training data:** The included dataset of 250k molecules is for demonstration. Real-world performance requires datasets of 1M+ molecules.
 
-4. **Conditional generation:** Add property conditioning (e.g., target LogP or MW) to guide molecule generation toward desired properties.
+4. **Character-level tokenization:** Treats multi-character atoms (like `Br`, `Cl`) as separate characters, which can lead to fragmentation. A SMILES-aware tokenizer would be more accurate.
 
-5. **Decoder-only Transformer (GPT-style):** Use a proper autoregressive decoder for more standard language modelling.
+5. **No property-guided generation:** Generation is unconditional — we cannot steer the model to generate molecules with specific properties prior to filtering.
 
-6. **Variational autoencoder (VAE):** Combine with a VAE for smooth latent space interpolation between molecules.
+---
 
-7. **Reinforcement learning:** Fine-tune with RL to optimize specific molecular properties (drug-likeness, binding affinity).
+## 7. Future Improvements
 
-8. **3D structure prediction:** Extend to predict 3D molecular conformations from SMILES.
+1. **Larger dataset:** Train on the full ZINC database (1m+ molecules) for better generalization.
 
-9. **Attention visualization:** Add attention heatmaps to explain which parts of SMILES the model focuses on.
+2. **SMILES-aware tokenizer:** Use regex-based tokenization to properly handle multi-character tokens like `Br`, `Cl`, `[NH]`, `@@`.
+
+3. **Conditional generation:** Add property conditioning (e.g., target LogP or MW) to guide molecule generation toward desired properties natively within the model.
+
+4. **Decoder-only Transformer (GPT-style):** Use a proper autoregressive decoder for more standard language modelling.
+
+5. **Variational autoencoder (VAE):** Combine with a VAE for smooth latent space interpolation between molecules.
+
+6. **Reinforcement learning:** Fine-tune with RL to optimize specific molecular properties (drug-likeness, binding affinity).
+
+7. **Attention visualization:** Add attention heatmaps to explain which parts of the SMILES sequence the model focuses on.

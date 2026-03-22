@@ -1,0 +1,51 @@
+Name,SMILES,Category
+Aspirin,CC(=O)Oc1ccccc1C(=O)O,Anti-inflammatory
+Ibuprofen,CC(C)Cc1ccc(cc1)C(C)C(=O)O,Anti-inflammatory
+Acetaminophen,CC(=O)Nc1ccc(O)cc1,Analgesic
+Naproxen,COc1ccc2cc(ccc2c1)C(C)C(=O)O,Anti-inflammatory
+Caffeine,Cn1c(=O)c2c(ncn2C)n(C)c1=O,Stimulant
+Metformin,CN(C)C(=N)NC(=N)N,Antidiabetic
+Atorvastatin,CC(C)c1n(CC[C@@H](O)C[C@@H](O)CC(=O)O)c(c2ccc(F)cc2)c(c1c1ccccc1)C(=O)Nc1ccccc1,Statin
+Omeprazole,COc1ccc2nc(CS(=O)c3ncc(C)c(OC)c3C)[nH]c2c1,Proton Pump Inhibitor
+Amlodipine,CCOC(=O)C1=C(COCCN)NC(C)=C(C1c1ccccc1Cl)C(=O)OC,Antihypertensive
+Lisinopril,NCCCC[C@@H](N[C@@H](CCc1ccccc1)C(=O)O)C(=O)N1CCC[C@H]1C(=O)O,ACE Inhibitor
+Simvastatin,CCC(C)(C)C(=O)O[C@H]1C[C@@H](O)C=C2C=C[C@H](C)[C@H](CC[C@@H](O)CC(=O)O)[C@@H]21,Statin
+Losartan,CCCCc1nc(Cl)c(n1Cc1ccc(c(c1)c1nnn[nH]1)CO)CO,Antihypertensive
+Metoprolol,COCCc1ccc(OCC(O)CNC(C)C)cc1,Beta Blocker
+Sertraline,Clc1ccc2c(c1Cl)[C@@H](c1ccccc1)C[C@H](NC)C2,Antidepressant
+Fluoxetine,CNCCC(Oc1ccc(cc1)C(F)(F)F)c1ccccc1,Antidepressant
+Ciprofloxacin,O=C(O)c1cn(C2CC2)c2cc(N3CCNCC3)c(F)cc2c1=O,Antibiotic
+Amoxicillin,CC1(C)S[C@@H]2[C@H](NC(=O)[C@@H](N)c3ccc(O)cc3)C(=O)N2[C@@H]1C(=O)O,Antibiotic
+Azithromycin,CC[C@H]1OC(=O)[C@H](C)[C@@H](O[C@H]2C[C@@H](C)(OC)[C@@H](O)[C@H](C)O2)[C@H](C)[C@@H](O[C@@H]2O[C@H](C)C[C@@H]([C@H]2O)N(C)C)[C@](C)(O)C[C@@H](C)C(=O)[C@H](C)[C@@H](O)[C@]1(C)O,Antibiotic
+Warfarin,CC(=O)CC(c1ccccc1)c1c(O)c2ccccc2oc1=O,Anticoagulant
+Clopidogrel,COC(=O)[C@@H](c1ccccc1Cl)N1CCc2sccc2C1,Antiplatelet
+Diazepam,CN1C(=O)CN=C(c2ccccc2)c2cc(Cl)ccc21,Anxiolytic
+Morphine,CN1CC[C@]23c4c5ccc(O)c4O[C@H]2[C@@H](O)C=C[C@H]3[C@@H]1C5,Opioid
+Penicillin_G,CC1(C)S[C@@H]2[C@H](NC(=O)Cc3ccccc3)C(=O)N2[C@@H]1C(=O)O,Antibiotic
+Doxycycline,O=C1C2=C(O)c3c(O)cccc3[C@@]2(C)C[C@H]2[C@@H]1C(O)=C(C(N)=O)[C@]1(O)C(=O)C(=C(N(C)C)[C@@H]21)O,Antibiotic
+Gabapentin,NCC1(CC(=O)O)CCCCC1,Anticonvulsant
+Ranitidine,CNC(/N=C/[N+](=O)[O-])NCCSCc1ccc(CN(C)C)o1,Antacid
+Sildenafil,CCCc1nn(C)c2c1nc(nc2OCC)c1cc(ccc1OCC)S(=O)(=O)N1CCN(C)CC1,PDE5 Inhibitor
+Tamoxifen,CCC(=C(c1ccccc1)c1ccc(OCCN(C)C)cc1)c1ccccc1,Anticancer
+Prednisone,O=C1C=C2C[C@H]3[C@@H](C(=O)CO)[C@@](O)(C)C[C@H]3[C@@H]2[C@@]2(F)CC=C1[C@]12C,Corticosteroid
+Furosemide,NS(=O)(=O)c1cc(C(=O)O)c(NCc2ccco2)cc1Cl,Diuretic
+Hydrochlorothiazide,NS(=O)(=O)c1cc2c(cc1Cl)NCNS2(=O)=O,Diuretic
+Levothyroxine,N[C@@H](Cc1cc(I)c(Oc2ccc(O)c(I)c2)c(I)c1)C(=O)O,Thyroid Hormone
+Insulin_Glargine,NCC(=O)O,Antidiabetic
+Codeine,COc1ccc2c3c1O[C@@H]1[C@H](O)C=C[C@@H]4[C@@H](C2)N(C)CC[C@]341,Opioid
+Tramadol,COc1cccc(c1)[C@@]1(O)CCCC[C@H]1CN(C)C,Analgesic
+Diclofenac,OC(=O)Cc1ccccc1Nc1c(Cl)cccc1Cl,Anti-inflammatory
+Celecoxib,Cc1ccc(c(c1)c1cc(nn1c1ccc(cc1)S(N)(=O)=O)C(F)(F)F)C,Anti-inflammatory
+Montelukast,CC(C)(O)c1ccccc1CC[C@H](SCC1(CC(=O)O)CC1)c1cccc(c1)/C=C/c1ccc2ccc(Cl)cc2n1,Antiasthmatic
+Donepezil,COc1cc2CC(CC3CCN(Cc4ccccc4)CC3)C(=O)c2cc1OC,Alzheimer
+Escitalopram,N#Cc1ccc2c(c1)C(CCCCN1CCC1)(OC2)c1ccc(F)cc1,Antidepressant
+Rosuvastatin,CC(C)c1nc(N(C)S(C)(=O)=O)nc(c1/C=C/[C@@H](O)C[C@@H](O)CC(=O)O)c1ccc(F)cc1,Statin
+Citalopram,N#Cc1ccc2c(c1)[C@](CCN1CCC1)(OC2)c1ccc(F)cc1,Antidepressant
+Loratadine,CCOC(=O)N1CCC(=C2c3ccc(Cl)cc3CCc3ncccc32)CC1,Antihistamine
+Cetirizine,OC(=O)COCCN1CCN(C(c2ccccc2)c2ccc(Cl)cc2)CC1,Antihistamine
+Pantoprazole,COc1ccnc(CS(=O)c2nc3cc(OC(F)F)ccc3[nH]2)c1OC,Proton Pump Inhibitor
+Valsartan,CCCCC(=O)N(Cc1ccc(c(c1)c1nnn[nH]1)c1ccccc1C(=O)O)C(C(C)C)C(=O)O,Antihypertensive
+Duloxetine,CNCC[C@H](Oc1cccc2ccccc12)c1cccs1,Antidepressant
+Pregabalin,CC(C)C[C@H](CN)CC(=O)O,Anticonvulsant
+Aripiprazole,Clc1cccc(N2CCN(CCCCOc3ccc4c(c3)CCC(=O)N4)CC2)c1Cl,Antipsychotic
+Tadalafil,O=C1N(CC(=O)N2C[C@@H]3c4ccccc4[C@@H](c4cc5c(cc42)OCO5)[C@H]3C)c2ccccc2[C@@H]1c1ccc2c(c1)OCO2,PDE5 Inhibitor
