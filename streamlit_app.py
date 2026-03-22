@@ -286,14 +286,23 @@ with col_results:
                         fig_tsne = px.scatter(
                             df_pts, x="x", y="y",
                             color="group",
-                            hover_name="label",
-                            hover_data={"smiles": True, "mw": True, "logp": True, "x": False, "y": False},
                             size=[14 if g == "Generated" else 7 for g in df_pts["group"]],
                             color_discrete_map={
                                 "Generated": "#ff6b6b",
                                 "Known Drug": "#555577",
                             },
                             title="Chemical Space: Generated Molecules vs Known Drugs",
+                            custom_data=["label", "smiles", "mw", "logp"],
+                        )
+                        fig_tsne.update_traces(
+                            hovertemplate=(
+                                "<b>%{customdata[0]}</b><br>"
+                                "SMILES: %{customdata[1]}<br>"
+                                "MW: %{customdata[2]}<br>"
+                                "LogP: %{customdata[3]}"
+                                "<extra></extra>"
+                            ),
+                            marker=dict(line=dict(width=0.5, color="white")),
                         )
                         fig_tsne.update_layout(
                             template="plotly_dark",
@@ -303,9 +312,6 @@ with col_results:
                             xaxis_title="t-SNE Dimension 1",
                             yaxis_title="t-SNE Dimension 2",
                             legend_title="Molecule Type",
-                        )
-                        fig_tsne.update_traces(
-                            marker=dict(line=dict(width=0.5, color="white")),
                         )
                         st.plotly_chart(fig_tsne, use_container_width=True)
 
