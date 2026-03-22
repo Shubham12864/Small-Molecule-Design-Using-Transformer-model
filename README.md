@@ -5,6 +5,8 @@
 ![RDKit](https://img.shields.io/badge/RDKit-Chemistry%20Engine-green)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Web%20App-ff4b4b)
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://small-molecule-design-using-transformer-model-fzvu6ve66dz8h8zf.streamlit.app)
+
 A state-of-the-art Generative Deep Learning model designed to hallucinate entirely new drug-like molecules from scratch using **SMILES** string representations and **Transformer Architecture**. The system was trained on **250,000 real-world compounds** from the ZINC database and features a fully interactive **3D Molecular Web Dashboard**.
 
 ## ✨ Key Features
