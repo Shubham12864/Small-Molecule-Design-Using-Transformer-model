@@ -312,6 +312,13 @@ with col_results:
                             xaxis_title="t-SNE Dimension 1",
                             yaxis_title="t-SNE Dimension 2",
                             legend_title="Molecule Type",
+                            hoverlabel=dict(
+                                bgcolor="#1e1e2e",
+                                font_size=13,
+                                font_family="monospace",
+                                font_color="#e0e0e0",
+                                bordercolor="#555577",
+                            ),
                         )
                         st.plotly_chart(fig_tsne, use_container_width=True)
 
