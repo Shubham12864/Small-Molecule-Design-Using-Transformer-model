@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument("--d_model",    type=int,   default=256)
     parser.add_argument("--nhead",      type=int,   default=8)
     parser.add_argument("--num_layers", type=int,   default=4)
+    parser.add_argument("--dropout",    type=float, default=0.1)
     parser.add_argument("--seed",       type=int,   default=42)
     parser.add_argument("--val_split",  type=float, default=0.1)
     parser.add_argument("--patience",   type=int,   default=5)
@@ -45,30 +46,37 @@ def train():
     )
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True,  num_workers=2, pin_memory=True
+        train_dataset, batch_size=args.batch_size, shuffle=True,
+        num_workers=2, pin_memory=True
     )
-    val_loader   = DataLoader(
-        val_dataset,   batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True
+    val_loader = DataLoader(
+        val_dataset, batch_size=args.batch_size, shuffle=False,
+        num_workers=2, pin_memory=True
     )
 
     print(f"[Train] Train samples : {train_size}")
     print(f"[Train] Val   samples : {val_size}")
     print(f"[Train] Batches/epoch : {len(train_loader)}\n")
 
+    model_config = {
+        "d_model":         args.d_model,
+        "nhead":           args.nhead,
+        "num_layers":      args.num_layers,
+        "dim_feedforward": args.d_model * 4,
+        "max_len":         args.max_len,
+        "dropout":         args.dropout,
+    }
+
     model = MoleculeTransformer(
-        vocab_size      = tokenizer.vocab_size,
-        d_model         = args.d_model,
-        nhead           = args.nhead,
-        num_layers      = args.num_layers,
-        dim_feedforward = args.d_model * 4,
-        max_len         = args.max_len,
-        pad_token_id    = tokenizer.pad_token_id,
+        vocab_size  = tokenizer.vocab_size,
+        **model_config
     ).to(device)
 
-    print(f"[Train] Model parameters: {sum(p.numel() for p in model.parameters()):,}\n")
+    print(f"[Train] Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"[Train] Model config    : {model_config}\n")
 
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer  = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
@@ -139,20 +147,24 @@ def train():
         })
 
         print(f"Epoch [{epoch:02d}/{args.epochs}]  "
-              f"Train Loss: {avg_train:.4f}  "
-              f"Val Loss: {avg_val:.4f}  "
+              f"Train: {avg_train:.4f}  "
+              f"Val: {avg_val:.4f}  "
               f"LR: {current_lr:.6f}")
 
         if avg_val < best_val_loss:
             best_val_loss    = avg_val
             patience_counter = 0
-            save_model(model, tokenizer, get_checkpoint_path("best_model.pt"))
-            print(f"  ✓ Best model saved  (val_loss = {best_val_loss:.4f})")
+            save_model(
+                model, tokenizer,
+                get_checkpoint_path("best_model.pt"),
+                model_config
+            )
+            print(f"  ✓ Best model saved (val={best_val_loss:.4f})")
         else:
             patience_counter += 1
-            print(f"  ✗ No improvement  (patience {patience_counter}/{args.patience})")
+            print(f"  ✗ No improvement (patience {patience_counter}/{args.patience})")
             if patience_counter >= args.patience:
-                print(f"\n[Early Stop] No improvement for {args.patience} epochs. Stopping.")
+                print(f"\n[Early Stop] Stopped at epoch {epoch}")
                 break
 
     csv_path = get_checkpoint_path("loss_history.csv")
@@ -162,9 +174,9 @@ def train():
         writer.writerows(history)
 
     print(f"\n[OK] Training complete!")
-    print(f"[OK] Best val loss   : {best_val_loss:.4f}")
-    print(f"[OK] Loss history    : {csv_path}")
-    print(f"[OK] Best model      : {get_checkpoint_path('best_model.pt')}")
+    print(f"[OK] Best val loss : {best_val_loss:.4f}")
+    print(f"[OK] Loss history  : {csv_path}")
+    print(f"[OK] Best model    : {get_checkpoint_path('best_model.pt')}")
 
 
 if __name__ == "__main__":
