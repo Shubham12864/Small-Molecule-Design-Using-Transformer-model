@@ -39,23 +39,22 @@ class MoleculeTransformer(nn.Module):
         self.pad_token_id = pad_token_id
         self.vocab_size   = vocab_size
 
-        self.embedding    = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
-        self.emb_dropout  = nn.Dropout(p=dropout)
-        self.pos_encoder  = PositionalEncoding(d_model, max_len, dropout)
+        self.embedding   = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.emb_dropout = nn.Dropout(p=dropout)
+        self.pos_encoder = PositionalEncoding(d_model, max_len, dropout)
 
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model        = d_model,
-            nhead          = nhead,
-            dim_feedforward= dim_feedforward,
-            dropout        = dropout,
-            batch_first    = True,
+            d_model         = d_model,
+            nhead           = nhead,
+            dim_feedforward = dim_feedforward,
+            dropout         = dropout,
+            batch_first     = True,
         )
         self.transformer_decoder = nn.TransformerDecoder(
             decoder_layer, num_layers=num_layers
         )
 
         self.output_head = nn.Linear(d_model, vocab_size)
-
         self._init_weights()
 
     def _init_weights(self):
@@ -85,33 +84,14 @@ class MoleculeTransformer(nn.Module):
         emb = self.pos_encoder(emb)
 
         out = self.transformer_decoder(
-            tgt                    = emb,
-            memory                 = emb,
-            tgt_mask               = causal_mask,
-            tgt_key_padding_mask   = padding_mask,
-            memory_key_padding_mask= padding_mask,
+            tgt                     = emb,
+            memory                  = emb,
+            tgt_mask                = causal_mask,
+            tgt_key_padding_mask    = padding_mask,
+            memory_key_padding_mask = padding_mask,
         )
 
         return self.output_head(out)
-
-    @torch.no_grad()
-    def generate(self, tokenizer, seed_tokens, max_len=100, temperature=1.0, device="cpu"):
-        self.eval()
-        input_ids = torch.tensor([seed_tokens], dtype=torch.long, device=device)
-
-        for _ in range(max_len - len(seed_tokens)):
-            logits     = self.forward(input_ids)
-            next_logits= logits[:, -1, :] / max(temperature, 1e-8)
-            probs      = torch.softmax(next_logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-
-            if next_token.item() == tokenizer.eos_token_id:
-                break
-
-            input_ids = torch.cat([input_ids, next_token], dim=1)
-
-        tokens = input_ids[0].tolist()
-        return tokenizer.decode(tokens)
 
 
 if __name__ == "__main__":
