@@ -69,7 +69,7 @@ class MoleculeTransformer(nn.Module):
 
     def _generate_causal_mask(self, seq_len, device):
         return torch.triu(
-            torch.ones(seq_len, seq_len, device=device) * float("-inf"),
+            torch.ones(seq_len, seq_len, device=device, dtype=torch.bool),
             diagonal=1,
         )
 

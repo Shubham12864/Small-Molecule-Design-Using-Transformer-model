@@ -1,31 +1,124 @@
 import argparse
+import random
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tokenizer import SmilesTokenizer
 from dataset import SmilesDataset
 from model import MoleculeTransformer
 from utils import set_seed, load_smiles, save_model, get_data_path, get_checkpoint_path
 import csv
 
+try:
+    from rdkit import Chem
+    from rdkit.Chem.Scaffolds import MurckoScaffold
+    HAS_RDKIT = True
+except Exception:
+    HAS_RDKIT = False
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Molecule Transformer")
-    parser.add_argument("--epochs",     type=int,   default=20)
+    parser.add_argument("--epochs",     type=int,   default=30)
     parser.add_argument("--lr",         type=float, default=3e-4)
     parser.add_argument("--batch_size", type=int,   default=128)
     parser.add_argument("--max_len",    type=int,   default=100)
     parser.add_argument("--d_model",    type=int,   default=256)
     parser.add_argument("--nhead",      type=int,   default=8)
     parser.add_argument("--num_layers", type=int,   default=4)
-    parser.add_argument("--dropout",    type=float, default=0.1)
+    parser.add_argument("--dropout",    type=float, default=0.3)
     parser.add_argument("--seed",       type=int,   default=42)
     parser.add_argument("--val_split",  type=float, default=0.1)
-    parser.add_argument("--patience",   type=int,   default=5)
+    parser.add_argument("--patience",   type=int,   default=8)
+    parser.add_argument("--min_delta",  type=float, default=1e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-2)
+    parser.add_argument("--label_smoothing", type=float, default=0.05)
+    parser.add_argument("--dedup", action="store_true", default=True)
+    parser.add_argument("--no_dedup", action="store_true")
+    parser.add_argument(
+        "--split_method",
+        choices=["random", "scaffold"],
+        default="scaffold",
+        help="Use scaffold split to reduce structural leakage (requires RDKit).",
+    )
     return parser.parse_args()
+
+
+def canonicalize_smiles(smi):
+    if not HAS_RDKIT:
+        return smi
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return None
+    return Chem.MolToSmiles(mol, canonical=True)
+
+
+def get_scaffold(smi):
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        return ""
+    return MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
+
+
+def build_train_val_split(smiles_list, val_split, seed, split_method, dedup):
+    processed = []
+    invalid = 0
+
+    for smi in smiles_list:
+        canon = canonicalize_smiles(smi)
+        if canon is None:
+            invalid += 1
+            continue
+        processed.append(canon)
+
+    if dedup:
+        # dict preserves insertion order in modern Python.
+        processed = list(dict.fromkeys(processed))
+
+    if len(processed) < 2:
+        raise ValueError("Not enough valid samples after preprocessing.")
+
+    val_size = max(1, int(len(processed) * val_split))
+
+    if split_method == "scaffold":
+        if not HAS_RDKIT:
+            print("[Split] RDKit not available, falling back to random split.")
+        else:
+            rng = random.Random(seed)
+            buckets = {}
+            for smi in processed:
+                scaffold = get_scaffold(smi)
+                buckets.setdefault(scaffold, []).append(smi)
+
+            groups = list(buckets.values())
+            rng.shuffle(groups)
+            groups.sort(key=len, reverse=True)
+
+            val_smiles = []
+            train_smiles = []
+            for group in groups:
+                if len(val_smiles) + len(group) <= val_size:
+                    val_smiles.extend(group)
+                else:
+                    train_smiles.extend(group)
+
+            if not val_smiles:
+                val_smiles = train_smiles[:val_size]
+                train_smiles = train_smiles[val_size:]
+
+            return train_smiles, val_smiles, invalid
+
+    rng = random.Random(seed)
+    rng.shuffle(processed)
+    val_smiles = processed[:val_size]
+    train_smiles = processed[val_size:]
+    return train_smiles, val_smiles, invalid
 
 
 def train():
     args = parse_args()
+    if args.no_dedup:
+        args.dedup = False
+
     set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,16 +127,31 @@ def train():
         print(f"[Train] GPU: {torch.cuda.get_device_name(0)}")
 
     smiles_list = load_smiles(get_data_path("smiles.txt"))
-    tokenizer   = SmilesTokenizer()
-    tokenizer.fit(smiles_list)
-
-    full_dataset = SmilesDataset(smiles_list, tokenizer, max_len=args.max_len)
-    val_size     = int(len(full_dataset) * args.val_split)
-    train_size   = len(full_dataset) - val_size
-    train_dataset, val_dataset = random_split(
-        full_dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(args.seed)
+    train_smiles, val_smiles, invalid = build_train_val_split(
+        smiles_list=smiles_list,
+        val_split=args.val_split,
+        seed=args.seed,
+        split_method=args.split_method,
+        dedup=args.dedup,
     )
+
+    overlap = len(set(train_smiles) & set(val_smiles))
+    print(f"[Split] Method           : {args.split_method}")
+    print(f"[Split] Invalid removed  : {invalid:,}")
+    print(f"[Split] Dedup enabled    : {args.dedup}")
+    print(f"[Split] Train samples    : {len(train_smiles):,}")
+    print(f"[Split] Val samples      : {len(val_smiles):,}")
+    print(f"[Split] Train/Val overlap: {overlap:,}\n")
+    if overlap > 0:
+        raise RuntimeError("Leakage detected: overlap between train and validation sets.")
+
+    tokenizer = SmilesTokenizer()
+    tokenizer.fit(train_smiles)
+
+    train_dataset = SmilesDataset(train_smiles, tokenizer, max_len=args.max_len)
+    val_dataset   = SmilesDataset(val_smiles, tokenizer, max_len=args.max_len)
+    train_size    = len(train_dataset)
+    val_size      = len(val_dataset)
 
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
@@ -75,8 +183,15 @@ def train():
     print(f"[Train] Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     print(f"[Train] Model config    : {model_config}\n")
 
-    criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
-    optimizer  = torch.optim.Adam(model.parameters(), lr=args.lr)
+    criterion = nn.CrossEntropyLoss(
+        ignore_index=tokenizer.pad_token_id,
+        label_smoothing=args.label_smoothing,
+    )
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
@@ -86,7 +201,8 @@ def train():
         pct_start       = 0.1
     )
 
-    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+    use_amp = (device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     history          = []
     best_val_loss    = float("inf")
@@ -103,7 +219,7 @@ def train():
 
             optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 logits = model(input_ids)
                 loss   = criterion(
                     logits.view(-1, tokenizer.vocab_size),
@@ -127,7 +243,7 @@ def train():
                 input_ids  = input_ids.to(device, non_blocking=True)
                 target_ids = target_ids.to(device, non_blocking=True)
 
-                with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+                with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                     logits = model(input_ids)
                     loss   = criterion(
                         logits.view(-1, tokenizer.vocab_size),
@@ -151,7 +267,7 @@ def train():
               f"Val: {avg_val:.4f}  "
               f"LR: {current_lr:.6f}")
 
-        if avg_val < best_val_loss:
+        if avg_val < (best_val_loss - args.min_delta):
             best_val_loss    = avg_val
             patience_counter = 0
             save_model(
