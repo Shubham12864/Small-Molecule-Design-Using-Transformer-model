@@ -1,39 +1,45 @@
-import streamlit as st
-import torch
-import sys
 import os
 import warnings
-import py3Dmol
+
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import pandas as pd
+import py3Dmol
+import streamlit as st
 import streamlit.components.v1 as components
+import torch
 
-warnings.filterwarnings('ignore')
-sys.path.insert(0, os.path.join(os.getcwd(), 'src'))
-
-try:
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-    from rdkit import RDLogger
-    RDLogger.DisableLog('rdApp.*')
-except ImportError:
-    pass
-
-from model import MoleculeTransformer
-from tokenizer import SmilesTokenizer
-from generate import generate_smiles
-from property import compute_properties
-from utils import load_model, get_checkpoint_path
-from analytics import (
+from src.analytics import (
     compute_batch_stats,
     compute_tsne_embedding,
     find_closest_drugs,
     load_known_drugs,
 )
+from src.generate import generate_smiles
+from src.model import MoleculeTransformer
+from src.property import compute_properties
+from src.tokenizer import SmilesTokenizer
+from src.utils import get_checkpoint_path, load_model
+
+warnings.filterwarnings("ignore")
+
+try:
+    from rdkit import Chem
+    from rdkit import RDLogger
+    from rdkit.Chem import AllChem
+
+    RDLogger.DisableLog("rdApp.*")
+    RDKIT_AVAILABLE = True
+except ImportError:
+    Chem = None
+    AllChem = None
+    RDKIT_AVAILABLE = False
 
 
 def generate_3d_mol_block(smiles):
+    if not RDKIT_AVAILABLE:
+        return None
+
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
@@ -51,9 +57,10 @@ def generate_3d_mol_block(smiles):
         return None
 
 
-st.set_page_config(page_title="AI Molecular Engine", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="AI Molecular Engine", page_icon="M", layout="wide")
 
-st.markdown("""
+st.markdown(
+    """
 <style>
     .metric-card {
         text-align: center;
@@ -75,10 +82,12 @@ st.markdown("""
         margin-top: 4px;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.title("🧬 AI Molecular Generator")
-st.markdown("Transform SMILES seeds into 3D Molecular Structures using Deep Learning.")
+st.title("AI Molecular Generator")
+st.markdown("Transform SMILES seeds into 3D molecular structures using deep learning.")
 st.divider()
 
 
@@ -87,15 +96,20 @@ def get_model():
     checkpoint_path = get_checkpoint_path("best_model.pt")
     if not os.path.exists(checkpoint_path):
         return None, None
+
     try:
         model, tokenizer_data = load_model(MoleculeTransformer, checkpoint_path)
     except Exception as e:
         st.error(f"Model load error: {e}")
         return None, None
 
-    tokenizer            = SmilesTokenizer()
-    tokenizer.stoi       = tokenizer_data.get("stoi", {})
-    tokenizer.itos       = {int(k): v for k, v in tokenizer_data.get("itos", {}).items()}
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    model.eval()
+
+    tokenizer = SmilesTokenizer()
+    tokenizer.stoi = tokenizer_data.get("stoi", {})
+    tokenizer.itos = {int(k): v for k, v in tokenizer_data.get("itos", {}).items()}
     tokenizer.vocab_size = tokenizer_data.get("vocab_size", len(tokenizer.stoi))
     return model, tokenizer
 
@@ -107,19 +121,31 @@ if model is None:
     st.code("python src/train.py --epochs 20")
     st.stop()
 
+model_device = next(model.parameters()).device
+model_max_len = int(model.pos_encoder.pe.size(1))
 
 col_settings, col_results = st.columns([1, 2.5], gap="large")
 
 with col_settings:
-    st.header("⚙️ Settings")
-    seed          = st.text_input("Seed Token", value="C",
-                                  help="Starting SMILES fragment e.g. C, N, c1ccccc1")
+    st.header("Settings")
+    seed = st.text_input(
+        "Seed Token",
+        value="C",
+        help="Starting SMILES fragment, for example: C, N, or c1ccccc1",
+    )
     num_molecules = st.number_input("Molecules to Generate", min_value=1, max_value=20, value=6)
-    temperature   = st.slider("Temperature", min_value=0.1, max_value=1.5,
-                              value=0.8, step=0.1,
-                              help="Higher = more creative, Lower = more conservative")
-    generate_btn  = st.button("🚀 Generate Molecules", type="primary",
-                              use_container_width=True)
+    temperature = st.slider(
+        "Temperature",
+        min_value=0.1,
+        max_value=1.5,
+        value=0.8,
+        step=0.1,
+        help="Higher = more creative. Lower = more conservative.",
+    )
+    generate_btn = st.button("Generate Molecules", type="primary", use_container_width=True)
+
+    st.caption(f"Checkpoint context length: {model_max_len} tokens")
+    st.caption(f"Device: {str(model_device).upper()}")
 
     st.divider()
     with st.expander("Model Training Details", expanded=False):
@@ -128,14 +154,22 @@ with col_settings:
         if os.path.exists(loss_csv):
             df_loss = pd.read_csv(loss_csv)
             fig_loss = go.Figure()
-            fig_loss.add_trace(go.Scatter(
-                x=df_loss["epoch"], y=df_loss["train_loss"],
-                name="Train Loss", line=dict(color="#667eea", width=2)
-            ))
-            fig_loss.add_trace(go.Scatter(
-                x=df_loss["epoch"], y=df_loss["val_loss"],
-                name="Val Loss", line=dict(color="#ff6b6b", width=2, dash="dash")
-            ))
+            fig_loss.add_trace(
+                go.Scatter(
+                    x=df_loss["epoch"],
+                    y=df_loss["train_loss"],
+                    name="Train Loss",
+                    line=dict(color="#667eea", width=2),
+                )
+            )
+            fig_loss.add_trace(
+                go.Scatter(
+                    x=df_loss["epoch"],
+                    y=df_loss["val_loss"],
+                    name="Val Loss",
+                    line=dict(color="#ff6b6b", width=2, dash="dash"),
+                )
+            )
             fig_loss.update_layout(
                 template="plotly_dark",
                 paper_bgcolor="rgba(0,0,0,0)",
@@ -156,40 +190,43 @@ with col_results:
         if not seed:
             st.warning("Please enter a valid seed token.")
         else:
-            st.header("🔬 Discovery Results")
+            st.header("Discovery Results")
             with st.spinner("Generating molecules..."):
-                results      = []
-                attempts     = 0
+                results = []
+                attempts = 0
                 max_attempts = num_molecules * 10
 
                 while len(results) < num_molecules and attempts < max_attempts:
                     attempts += 1
                     smiles = generate_smiles(
-                        model, tokenizer,
-                        seed        = seed,
-                        max_len     = 60,
-                        temperature = temperature,
-                        device      = "cuda" if torch.cuda.is_available() else "cpu"
+                        model,
+                        tokenizer,
+                        seed=seed,
+                        max_len=model_max_len,
+                        temperature=temperature,
+                        device=model_device,
                     )
                     props = compute_properties(smiles)
                     if not props["valid"]:
                         continue
 
-                    results.append({
-                        "smiles":    smiles,
-                        "molblock":  generate_3d_mol_block(smiles),
-                        "mw":        props["mw"],
-                        "logp":      props["logp"],
-                        "qed":       props["qed"],
-                        "sa_score":  props["sa_score"],
-                        "tpsa":      props["tpsa"],
-                        "hbd":       props["hbd"],
-                        "hba":       props["hba"],
-                        "lipinski":  props["lipinski"],
-                    })
+                    results.append(
+                        {
+                            "smiles": smiles,
+                            "molblock": generate_3d_mol_block(smiles),
+                            "mw": props["mw"],
+                            "logp": props["logp"],
+                            "qed": props["qed"],
+                            "sa_score": props["sa_score"],
+                            "tpsa": props["tpsa"],
+                            "hbd": props["hbd"],
+                            "hba": props["hba"],
+                            "lipinski": props["lipinski"],
+                        }
+                    )
 
             if not results:
-                st.warning("No valid molecules generated. Try a different seed or higher temperature.")
+                st.warning("No valid molecules generated. Try a different seed or adjust temperature.")
             else:
                 if len(results) < num_molecules:
                     st.info(f"Found {len(results)} valid molecules from {attempts} attempts.")
@@ -198,8 +235,8 @@ with col_results:
                 for idx, res in enumerate(results):
                     with grid_cols[idx % 3]:
                         with st.container(border=True):
-                            lip = "✅ Lipinski PASS" if res["lipinski"] else "⚠️ Lipinski FAIL"
-                            st.markdown(f"**Molecule #{idx+1}** — {lip}")
+                            lip = "Lipinski PASS" if res["lipinski"] else "Lipinski FAIL"
+                            st.markdown(f"**Molecule #{idx + 1}** - {lip}")
                             st.code(res["smiles"])
                             st.caption(
                                 f"**MW:** {res['mw']}  |  "
@@ -210,10 +247,7 @@ with col_results:
                             if res["molblock"]:
                                 view = py3Dmol.view(width=280, height=220)
                                 view.addModel(res["molblock"], "mol")
-                                view.setStyle({
-                                    "stick":  {"radius": 0.15},
-                                    "sphere": {"scale": 0.25}
-                                })
+                                view.setStyle({"stick": {"radius": 0.15}, "sphere": {"scale": 0.25}})
                                 view.zoomTo()
                                 view.setBackgroundColor("#0e1117")
                                 components.html(view._make_html(), height=230, width=290)
@@ -221,13 +255,11 @@ with col_results:
                                 st.info("3D coordinates unavailable.")
 
                 st.divider()
-                st.header("📊 AI / ML Analysis")
+                st.header("AI / ML Analysis")
 
-                tab_analytics, tab_space, tab_drugs = st.tabs([
-                    "📊 Batch Analytics",
-                    "🗺️ Chemical Space",
-                    "💊 Drug Comparison",
-                ])
+                tab_analytics, tab_space, tab_drugs = st.tabs(
+                    ["Batch Analytics", "Chemical Space", "Drug Comparison"]
+                )
 
                 with tab_analytics:
                     stats = compute_batch_stats(results, attempts)
@@ -236,74 +268,97 @@ with col_results:
                     for col, label, value in zip(
                         [m1, m2, m3, m4, m5],
                         ["Validity", "Diversity", "Avg QED", "Avg MW", "Lipinski Pass"],
-                        [f"{stats['validity_rate']}%",
-                         stats['diversity'],
-                         stats['avg_qed'],
-                         stats['avg_mw'],
-                         f"{stats['lipinski_pass']}/{stats['num_valid']}"]
+                        [
+                            f"{stats['validity_rate']}%",
+                            stats["diversity"],
+                            stats["avg_qed"],
+                            stats["avg_mw"],
+                            f"{stats['lipinski_pass']}/{stats['num_valid']}",
+                        ],
                     ):
                         with col:
-                            st.markdown(f"""<div class='metric-card'>
-                                <div class='metric-value'>{value}</div>
-                                <div class='metric-label'>{label}</div>
-                            </div>""", unsafe_allow_html=True)
+                            st.markdown(
+                                f"""<div class='metric-card'>
+                                    <div class='metric-value'>{value}</div>
+                                    <div class='metric-label'>{label}</div>
+                                </div>""",
+                                unsafe_allow_html=True,
+                            )
 
                     st.markdown("<br>", unsafe_allow_html=True)
 
                     chart1, chart2, chart3 = st.columns(3)
                     with chart1:
-                        fig = px.histogram(x=stats["mw_list"],
+                        fig = px.histogram(
+                            x=stats["mw_list"],
                             title="MW Distribution",
                             labels={"x": "Molecular Weight"},
-                            color_discrete_sequence=["#667eea"])
-                        fig.update_layout(template="plotly_dark",
+                            color_discrete_sequence=["#667eea"],
+                        )
+                        fig.update_layout(
+                            template="plotly_dark",
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)",
-                            height=300, showlegend=False)
+                            height=300,
+                            showlegend=False,
+                        )
                         st.plotly_chart(fig, use_container_width=True)
 
                     with chart2:
-                        fig = px.histogram(x=stats["logp_list"],
+                        fig = px.histogram(
+                            x=stats["logp_list"],
                             title="LogP Distribution",
                             labels={"x": "LogP"},
-                            color_discrete_sequence=["#764ba2"])
-                        fig.update_layout(template="plotly_dark",
+                            color_discrete_sequence=["#764ba2"],
+                        )
+                        fig.update_layout(
+                            template="plotly_dark",
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)",
-                            height=300, showlegend=False)
+                            height=300,
+                            showlegend=False,
+                        )
                         st.plotly_chart(fig, use_container_width=True)
 
                     with chart3:
-                        fig = px.histogram(x=stats["qed_list"],
+                        fig = px.histogram(
+                            x=stats["qed_list"],
                             title="QED Distribution",
                             labels={"x": "QED Score"},
-                            color_discrete_sequence=["#ff6b6b"])
-                        fig.update_layout(template="plotly_dark",
+                            color_discrete_sequence=["#ff6b6b"],
+                        )
+                        fig.update_layout(
+                            template="plotly_dark",
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)",
-                            height=300, showlegend=False)
+                            height=300,
+                            showlegend=False,
+                        )
                         st.plotly_chart(fig, use_container_width=True)
 
                 with tab_space:
                     with st.spinner("Computing t-SNE..."):
                         known_drugs = load_known_drugs()
-                        points      = compute_tsne_embedding(
+                        points = compute_tsne_embedding(
                             [r["smiles"] for r in results],
                             [{"mw": r["mw"], "logp": r["logp"]} for r in results],
-                            reference_smiles = [d["SMILES"] for d in known_drugs],
-                            reference_names  = [d["Name"]   for d in known_drugs],
-                            perplexity       = 5,
+                            reference_smiles=[d["SMILES"] for d in known_drugs],
+                            reference_names=[d["Name"] for d in known_drugs],
+                            perplexity=5,
                         )
 
                     if not points:
                         st.warning("Not enough molecules for t-SNE.")
                     else:
-                        df_pts   = pd.DataFrame(points)
+                        df_pts = pd.DataFrame(points)
                         fig_tsne = px.scatter(
-                            df_pts, x="x", y="y", color="group",
+                            df_pts,
+                            x="x",
+                            y="y",
+                            color="group",
                             color_discrete_map={
                                 "Generated": "#ff6b6b",
-                                "Known Drug": "#b8b0a1"
+                                "Known Drug": "#b8b0a1",
                             },
                             title="Chemical Space: Generated vs Known Drugs",
                             custom_data=["label", "smiles", "mw", "logp"],
@@ -320,7 +375,7 @@ with col_results:
                                 "SMILES: %{customdata[1]}<br>"
                                 "MW: %{customdata[2]}<br>"
                                 "LogP: %{customdata[3]}<extra></extra>"
-                            )
+                            ),
                         )
                         fig_tsne.update_layout(
                             template="plotly_dark",
@@ -337,27 +392,34 @@ with col_results:
 
                 with tab_drugs:
                     with st.spinner("Comparing against drug database..."):
-                        comparisons = find_closest_drugs(
-                            [r["smiles"] for r in results], top_k=3
-                        )
+                        comparisons = find_closest_drugs([r["smiles"] for r in results], top_k=3)
                     if not comparisons:
                         st.warning("Drug database not found at data/known_drugs.csv")
                     else:
                         for idx, comp in enumerate(comparisons):
                             with st.container(border=True):
-                                st.markdown(f"**Molecule #{idx+1}** `{comp['generated']}`")
+                                st.markdown(f"**Molecule #{idx + 1}** `{comp['generated']}`")
                                 if comp["matches"]:
                                     st.dataframe(
-                                        pd.DataFrame([{
-                                            "Drug":       m["name"],
-                                            "Similarity": f"{m['similarity']}%",
-                                            "Category":   m["category"],
-                                            "SMILES":     m["smiles"][:45] + "..." if len(m["smiles"]) > 45 else m["smiles"],
-                                        } for m in comp["matches"]]),
+                                        pd.DataFrame(
+                                            [
+                                                {
+                                                    "Drug": m["name"],
+                                                    "Similarity": f"{m['similarity']}%",
+                                                    "Category": m["category"],
+                                                    "SMILES": (
+                                                        m["smiles"][:45] + "..."
+                                                        if len(m["smiles"]) > 45
+                                                        else m["smiles"]
+                                                    ),
+                                                }
+                                                for m in comp["matches"]
+                                            ]
+                                        ),
                                         use_container_width=True,
                                         hide_index=True,
                                     )
                                 else:
                                     st.info("No matches found.")
     else:
-        st.info("👈 Configure settings and click **Generate Molecules** to begin.")
+        st.info("Configure settings and click Generate Molecules to begin.")
