@@ -1,204 +1,341 @@
-# Design Document — Molecule Transformer
+# Design Document: Small-Molecule Design with a Transformer
 
-## 1. Problem Description
+## 1. Project Purpose
 
-**Goal:** Build a deep learning model that learns the syntax and patterns of molecular SMILES strings and can generate new, chemically plausible molecules.
+This project is a molecular sequence-generation system built around SMILES strings, a Transformer model, RDKit-based validation, and a Streamlit application for interactive exploration.
 
-**Why SMILES?** SMILES (Simplified Molecular Input Line Entry System) is a text-based representation of molecular structures. By treating molecules as sequences of characters, we can apply natural language processing (NLP) techniques — specifically, Transformer models — to learn molecular patterns.
+The current system is designed to:
 
-**Key Tasks:**
+- learn SMILES syntax and local chemical motifs from a text corpus of molecules
+- generate new candidate molecules autoregressively from a short seed fragment
+- score generated molecules with standard RDKit descriptors
+- visualize generated outputs in a lightweight web interface
+- provide simple AI/ML analytics such as diversity, t-SNE chemical-space mapping, and nearest known-drug lookup
 
-1. Train a Transformer on SMILES strings via next-token prediction
-2. Generate novel SMILES sequences autoregressively
-3. Validate and compute properties of generated molecules using RDKit
+## 2. Scope
 
----
+### In Scope
 
-## 2. Architecture Diagram
+- SMILES tokenization and language modeling
+- Transformer-based next-token prediction
+- scaffold-aware train/validation splitting
+- RDKit validity and descriptor computation
+- interactive molecule generation through Streamlit
+- basic chemical-space analytics for generated batches
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        TRAINING PIPELINE                            │
-│                                                                     │
-│   smiles.txt                                                        │
-│       │                                                             │
-│       ▼                                                             │
-│   ┌──────────┐     ┌──────────────┐     ┌────────────────────────┐ │
-│   │Tokenizer │────▸│   Dataset    │────▸│   DataLoader           │ │
-│   │(char→ID) │     │(input,target)│     │(batched, shuffled)     │ │
-│   └──────────┘     └──────────────┘     └──────────┬─────────────┘ │
-│                                                     │               │
-│                                                     ▼               │
-│                              ┌───────────────────────────────────┐  │
-│                              │     MOLECULE TRANSFORMER          │  │
-│                              │                                   │  │
-│                              │  Token Embedding (vocab → 64-d)   │  │
-│                              │         │                         │  │
-│                              │         ▼                         │  │
-│                              │  Positional Encoding (sinusoidal) │  │
-│                              │         │                         │  │
-│                              │         ▼                         │  │
-│                              │  Transformer Encoder Layer × 2    │  │
-│                              │  ┌─────────────────────────────┐  │  │
-│                              │  │ Multi-Head Attention (4 hds)│  │  │
-│                              │  │ Add & Norm                  │  │  │
-│                              │  │ Feed-Forward (64 → 128 → 64)│  │  │
-│                              │  │ Add & Norm                  │  │  │
-│                              │  └─────────────────────────────┘  │  │
-│                              │         │                         │  │
-│                              │         ▼                         │  │
-│                              │  Linear Head (64 → vocab_size)    │  │
-│                              │         │                         │  │
-│                              │         ▼                         │  │
-│                              │     Logits (per token)            │  │
-│                              └───────────────────────────────────┘  │
-│                                                     │               │
-│                                        CrossEntropyLoss + Adam      │
-│                                                     │               │
-│                                              Save model.pt          │
-└─────────────────────────────────────────────────────────────────────┘
+### Out of Scope
 
-┌─────────────────────────────────────────────────────────────────────┐
-│                       GENERATION PIPELINE                           │
-│                                                                     │
-│   Seed: "C"                                                         │
-│       │                                                             │
-│       ▼                                                             │
-│   ┌──────────────┐                                                  │
-│   │ SOS + "C"    │──┐                                               │
-│   └──────────────┘  │                                               │
-│                     ▼                                               │
-│             ┌──────────────┐     ┌──────┐                           │
-│             │  Transformer │────▸│argmax│──▸ next token             │
-│             └──────────────┘     └──────┘       │                   │
-│                     ▲                           │                   │
-│                     └───── append ◂─────────────┘                   │
-│                        (repeat until EOS)                           │
-│                                                                     │
-│   Output: "CCO" ──▸ RDKit ──▸ Valid? ✓  MW: 46.07  LogP: -0.00     │
-└─────────────────────────────────────────────────────────────────────┘
+- target-aware drug design
+- docking, binding affinity prediction, or QSAR modeling
+- graph neural networks or 3D-native molecular generation
+- synthesis planning or retrosynthesis
+- medicinal chemistry decision support beyond simple heuristics
+
+## 3. System Overview
+
+```mermaid
+flowchart LR
+    A["data/smiles.txt"] --> B["Canonicalize + optional dedup"]
+    B --> C["Random or scaffold split"]
+    C --> D["Regex SMILES tokenizer"]
+    D --> E["SmilesDataset"]
+    E --> F["DataLoader"]
+    F --> G["Causal Transformer model"]
+    G --> H["Cross-entropy training"]
+    H --> I["Checkpoint + loss history"]
+    I --> J["CLI + Streamlit inference"]
+    J --> K["RDKit validation and descriptors"]
+    K --> L["3D conformer + analytics dashboard"]
 ```
 
----
+## 4. Repository Components
 
-## 3. Data Flow
+| File | Responsibility |
+| --- | --- |
+| `src/tokenizer.py` | Regex-based SMILES tokenization and vocab management |
+| `src/dataset.py` | Converts tokenized SMILES into padded autoregressive training pairs |
+| `src/model.py` | Causal Transformer encoder used for next-token prediction |
+| `src/train.py` | End-to-end training loop with split logic, optimization, and checkpointing |
+| `src/generate.py` | Seeded autoregressive generation with safer sampling controls |
+| `src/property.py` | RDKit-based validity checks and molecular descriptors |
+| `src/analytics.py` | Diversity, t-SNE chemical-space projection, and known-drug similarity |
+| `streamlit_app.py` | UI for generation, 3D visualization, and analytics |
+| `data/smiles.txt` | Training corpus |
+| `checkpoints/` | Saved model artifacts and training history |
 
+## 5. Data Design
+
+### Input Data
+
+The project expects one SMILES string per line in `data/smiles.txt`.
+
+Observed dataset size in the current repo:
+
+- `249,455` lines in `data/smiles.txt`
+
+### Preprocessing Strategy
+
+Training-time preprocessing in `src/train.py` includes:
+
+- canonicalization with RDKit when available
+- removal of invalid SMILES before splitting
+- optional deduplication
+- train/validation split using either:
+  - `random`
+  - `scaffold` based on Murcko scaffolds
+
+The default split method is scaffold-based to reduce structural leakage between training and validation samples.
+
+## 6. Tokenization Design
+
+The tokenizer is SMILES-aware via regex matching rather than plain character splitting.
+
+It supports:
+
+- bracketed atoms such as `[C@H]`, `[NH+]`, `[C@@H]`
+- aromatic atoms such as `c`, `n`, `o`
+- halogens such as `Cl` and `Br`
+- bond symbols and punctuation such as `=`, `#`, `/`, `\\`, `(`, `)`
+- ring closure digits and `%NN` tokens
+
+Special tokens:
+
+- `<PAD>`
+- `<SOS>`
+- `<EOS>`
+- `<UNK>`
+
+This is a meaningful improvement over the older character-level design because multi-character chemical symbols remain intact.
+
+## 7. Model Architecture
+
+### Current Code Architecture
+
+The current implementation in `src/model.py` is a causal Transformer encoder used autoregressively.
+
+Core settings from the current training defaults:
+
+| Hyperparameter | Value |
+| --- | ---: |
+| `d_model` | `256` |
+| `nhead` | `8` |
+| `num_layers` | `4` |
+| `dim_feedforward` | `1024` |
+| `max_len` | `60` |
+| `dropout` | `0.2` |
+
+Additional architectural details:
+
+- sinusoidal positional encoding
+- embedding scaling by `sqrt(d_model)`
+- `nn.TransformerEncoderLayer`
+- `activation="gelu"`
+- `norm_first=True`
+- final `LayerNorm`
+- causal mask applied inside the forward pass
+- padding mask support through `pad_token_id`
+
+Approximate parameter count for the current encoder architecture at `vocab_size=65`:
+
+- `3,192,897` parameters
+
+### Model Flow
+
+```mermaid
+flowchart TD
+    A["Token IDs"] --> B["Embedding"]
+    B --> C["Sinusoidal positional encoding"]
+    C --> D["Causal mask + padding mask"]
+    D --> E["4 Transformer encoder layers"]
+    E --> F["Linear output head"]
+    F --> G["Vocabulary logits"]
 ```
-                      ┌─────────────┐
-                      │ smiles.txt  │
-                      │ (raw text)  │
-                      └──────┬──────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Tokenizer     │
-                    │ char → int IDs  │
-                    │ + SOS, EOS, PAD │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │    Dataset      │
-                    │ input = [:-1]   │
-                    │ target = [1:]   │
-                    │ pad to max_len  │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   DataLoader    │
-                    │ batch, shuffle  │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   Transformer   │
-                    │  → logits       │
-                    └────────┬────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-         Training       Generation     AI/ML Analytics
-         (loss →        (Sampling →    (Morgan FPs →
-          backprop)      SMILES)       t-SNE / Similarity)
-```
-
----
-
-## 4. Model Explanation
-
-### Why a Transformer?
-
-Transformers excel at sequence modelling because of **self-attention**, which lets the model look at the entire input sequence when predicting each token. This is important for SMILES because:
-
-- Ring closures (e.g., `c1ccccc1`) require long-range dependencies
-- Branching (parentheses) creates nested structures
-- Atom types and bonds interact across the sequence
-
-### Model Components
-
-| Component               | Purpose                                           | Size        |
-|------------------------|----------------------------------------------------|-------------|
-| Token Embedding         | Converts token IDs to dense vectors               | vocab × 64  |
-| Positional Encoding     | Adds position info (sinusoidal, not learned)      | max_len × 64|
-| Transformer Encoder     | Self-attention + feed-forward (2 layers)          | ~60K params |
-| Linear Head             | Projects hidden states to vocabulary logits        | 64 × vocab  |
-
-### Causal Masking
-
-We use an upper-triangular mask so each token can only attend to **previous** tokens (including itself). This enforces the autoregressive property needed for generation.
 
 ### Training Objective
 
-- **Loss:** CrossEntropyLoss (ignoring PAD tokens)
-- **Optimizer:** Adam (lr = 0.001)
-- **Task:** Given tokens `[SOS, C, C, O]`, predict `[C, C, O, EOS]`
+The task is next-token prediction:
 
----
+- input: `[SOS, t1, t2, t3, ...]`
+- target: `[t1, t2, t3, ..., EOS]`
 
----
+Loss:
 
-## 5. AI / ML Integration (Frontend)
+- `CrossEntropyLoss`
+- pad tokens ignored
+- label smoothing enabled
 
-The Streamlit frontend integrates post-generation analytics to evaluate and visualize the quality of the generated molecules.
+## 8. Training Design
 
-### Fingerprint Computation
-All analytics are driven by **Morgan Fingerprints** (radius 2, 2048 bits). These bit vectors represent the presence or absence of specific substructures in the molecule, allowing for mathematical comparison of chemical features.
+### Dataset Construction
 
-### Batch Analytics & Diversity
-- **Validity Rate:** Measures the grammatical correctness of the model by tracking the ratio of valid SMILES to total generator attempts.
-- **Diversity Score:** Calculated as the average pairwise **Tanimoto distance** ($1 - \text{Tanimoto Similarity}$) across all generated valid molecules. A score near $1.0$ indicates high creativity and variance, while near $0.0$ implies repeated outputs.
+`src/dataset.py` converts each tokenized SMILES sequence into:
 
-### Chemical Space (t-SNE)
-High-dimensional Morgan fingerprints (2048-D) are reduced to 2D coordinates using **t-Distributed Stochastic Neighbor Embedding (t-SNE)**. This interactive scatter plot maps the generated molecules against a reference set of FDA-approved known drugs, visually indicating whether the AI's outputs occupy similar chemical space to real medicines.
+- `input_ids = token_ids[:-1]`
+- `target_ids = token_ids[1:]`
 
-### Known Drug Comparison
-For each generated molecule, the system computes Tanimoto similarity against the reference dataset of known drugs. It surfaces the top matches, helping to identify the potential therapeutic category (e.g., Antihistamine, Antihypertensive) of the novel molecule.
+It also:
 
----
+- pads sequences to `max_len + 1`
+- truncates sequences longer than the configured limit
+- skips empty or too-short samples
 
-## 6. Limitations
+### Optimizer and Scheduling
 
-1. **Small model capacity:** With ~60K parameters and 2 layers, the model has limited ability to capture complex molecular patterns.
+The current training pipeline uses:
 
-2. **No chemical constraints:** The model learns syntax statistically but doesn't enforce chemical rules (valence, aromaticity). Invalid molecules can still be generated (though the frontend filters them).
+- `AdamW`
+- `OneCycleLR`
+- gradient clipping with `max_norm=1.0`
+- AMP automatically on CUDA
+- early stopping using validation loss
 
-3. **Small training data:** The included dataset of 250k molecules is for demonstration. Real-world performance requires datasets of 1M+ molecules.
+### Current Default Training Configuration
 
-4. **Character-level tokenization:** Treats multi-character atoms (like `Br`, `Cl`) as separate characters, which can lead to fragmentation. A SMILES-aware tokenizer would be more accurate.
+| Argument | Default |
+| --- | ---: |
+| `epochs` | `20` |
+| `lr` | `3e-4` |
+| `batch_size` | `64` |
+| `max_len` | `60` |
+| `dropout` | `0.2` |
+| `val_split` | `0.1` |
+| `patience` | `8` |
+| `min_delta` | `1e-4` |
+| `weight_decay` | `1e-2` |
+| `label_smoothing` | `0.05` |
+| `num_workers` | `2` |
+| `split_method` | `scaffold` |
+| `dedup` | `True` |
 
-5. **No property-guided generation:** Generation is unconditional — we cannot steer the model to generate molecules with specific properties prior to filtering.
+### Training Outputs
 
----
+Training writes:
 
-## 7. Future Improvements
+- `checkpoints/best_model.pt`
+- optionally `checkpoints/last_model.pt`
+- `checkpoints/loss_history.csv`
 
-1. **Larger dataset:** Train on the full ZINC database (1m+ molecules) for better generalization.
+## 9. Generation Design
 
-2. **SMILES-aware tokenizer:** Use regex-based tokenization to properly handle multi-character tokens like `Br`, `Cl`, `[NH]`, `@@`.
+### Inference Workflow
 
-3. **Conditional generation:** Add property conditioning (e.g., target LogP or MW) to guide molecule generation toward desired properties natively within the model.
+```mermaid
+flowchart LR
+    A["Seed fragment"] --> B["Tokenize and prepend SOS"]
+    B --> C["Run Transformer on current prefix"]
+    C --> D["Get final-step logits"]
+    D --> E["Apply generation controls"]
+    E --> F["Sample next token"]
+    F --> G["Append token and repeat"]
+    G --> H["EOS or max length"]
+    H --> I["Decode SMILES"]
+    I --> J["RDKit validation and properties"]
+```
 
-4. **Decoder-only Transformer (GPT-style):** Use a proper autoregressive decoder for more standard language modelling.
+### Sampling Controls
 
-5. **Variational autoencoder (VAE):** Combine with a VAE for smooth latent space interpolation between molecules.
+The generator in `src/generate.py` includes:
 
-6. **Reinforcement learning:** Fine-tune with RL to optimize specific molecular properties (drug-likeness, binding affinity).
+- `temperature`
+- `top_k`
+- `top_p`
+- `repetition_penalty`
+- `min_new_tokens`
+- `max_repeat_run`
 
-7. **Attention visualization:** Add attention heatmaps to explain which parts of the SMILES sequence the model focuses on.
+It also blocks:
+
+- `<PAD>`
+- `<SOS>`
+- `<UNK>`
+
+And it can reject invalid molecules unless `--allow_invalid` is used.
+
+## 10. Property and Chemistry Layer
+
+`src/property.py` evaluates each generated SMILES using RDKit.
+
+Computed outputs include:
+
+- validity
+- molecular weight
+- LogP
+- QED
+- TPSA
+- hydrogen-bond donors
+- hydrogen-bond acceptors
+- rotatable bonds
+- ring count
+- Lipinski pass/fail
+- synthetic accessibility score when `sascorer` is available
+
+This chemistry layer is a post-generation filter and scorer. It does not constrain the neural model during decoding.
+
+## 11. Analytics and UI Design
+
+### Streamlit Product Flow
+
+The app provides:
+
+- a seed input field
+- number-of-molecules control
+- temperature slider
+- checkpoint loading via cached resource initialization
+- result cards with SMILES and descriptor summaries
+- on-the-fly 3D conformer generation using RDKit + `py3Dmol`
+
+### Batch Analytics
+
+The analytics layer computes:
+
+- validity rate
+- diversity score using pairwise Tanimoto distance
+- average MW
+- average LogP
+- average QED
+- Lipinski pass counts
+
+### Chemical Space View
+
+`src/analytics.py` computes:
+
+- Morgan fingerprints with radius `2`
+- fingerprint length `2048`
+- t-SNE projection to 2D
+- comparison between generated molecules and known-drug references
+
+### Known-Drug Similarity
+
+The app can compare generated molecules against `data/known_drugs.csv` using Tanimoto similarity and report top matches.
+
+## 12. Current Implementation Note
+
+There is an important repo-level caveat:
+
+- the current `src/model.py` defines an encoder-style causal Transformer
+- the packaged `checkpoints/best_model.pt` contains metadata from an older decoder-style checkpoint
+
+That means:
+
+- the design target of the codebase is the current encoder-style model
+- the packaged historical checkpoint is not architecture-compatible with that current code path
+- a fresh retraining run is the cleanest way to fully align code, checkpoints, app behavior, and documentation
+
+This should be treated as a project consistency issue, not as intended long-term design.
+
+## 13. Limitations
+
+- Generation is syntax-driven and not conditioned on target activity or assay outcomes.
+- Chemical validity is checked after generation rather than enforced during decoding.
+- The system models linearized SMILES, not graphs or 3D geometry directly.
+- The dashboard is intended for exploration, not benchmark-grade evaluation.
+- t-SNE plots are qualitative and depend on the sampled batch.
+- No automated test suite currently guarantees model-checkpoint compatibility.
+
+## 14. Recommended Next Steps
+
+- retrain and save a checkpoint that matches the current encoder architecture
+- add automated tests for tokenizer, model loading, and generation
+- surface checkpoint metadata directly in the app
+- add a dedicated evaluation script or evaluation section if benchmark reporting becomes a first-class goal
+- add screenshot assets to make documentation and the project narrative stronger
