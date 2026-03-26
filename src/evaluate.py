@@ -6,18 +6,32 @@ from collections import OrderedDict
 
 import torch
 
-from analytics import compute_diversity_score
-from generate import generate_smiles
-from model import MoleculeTransformer
-from property import compute_properties
-from tokenizer import SmilesTokenizer
-from utils import (
-    get_checkpoint_path,
-    get_data_path,
-    load_model,
-    load_smiles,
-    set_seed,
-)
+try:
+    from .analytics import compute_diversity_score
+    from .generate import generate_smiles
+    from .model import MoleculeTransformer
+    from .property import compute_properties
+    from .tokenizer import SmilesTokenizer
+    from .utils import (
+        get_checkpoint_path,
+        get_data_path,
+        load_model,
+        load_smiles,
+        set_seed,
+    )
+except ImportError:
+    from analytics import compute_diversity_score
+    from generate import generate_smiles
+    from model import MoleculeTransformer
+    from property import compute_properties
+    from tokenizer import SmilesTokenizer
+    from utils import (
+        get_checkpoint_path,
+        get_data_path,
+        load_model,
+        load_smiles,
+        set_seed,
+    )
 
 try:
     from rdkit import Chem

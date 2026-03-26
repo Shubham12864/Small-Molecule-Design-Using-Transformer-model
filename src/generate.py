@@ -3,10 +3,16 @@ import warnings
 
 import torch
 
-from model import MoleculeTransformer
-from property import compute_properties
-from tokenizer import SMILES_PATTERN, SmilesTokenizer
-from utils import get_checkpoint_path, load_model
+try:
+    from .model import MoleculeTransformer
+    from .property import compute_properties
+    from .tokenizer import SMILES_PATTERN, SmilesTokenizer
+    from .utils import get_checkpoint_path, load_model
+except ImportError:
+    from model import MoleculeTransformer
+    from property import compute_properties
+    from tokenizer import SMILES_PATTERN, SmilesTokenizer
+    from utils import get_checkpoint_path, load_model
 
 warnings.filterwarnings("ignore")
 
