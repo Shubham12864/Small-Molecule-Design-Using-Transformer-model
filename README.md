@@ -1,180 +1,156 @@
-# Molecular Transformer for Small Molecule Generation
+# Small-Molecule Design with a Transformer
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![RDKit](https://img.shields.io/badge/RDKit-Cheminformatics-138A36)](https://www.rdkit.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![Plotly](https://img.shields.io/badge/Plotly-Analytics-3F4F75?logo=plotly&logoColor=white)](https://plotly.com/python/)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-tSNE-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/stable/)
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c)
+![RDKit](https://img.shields.io/badge/RDKit-Chemoinformatics-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-Interactive%20UI-ff4b4b)
+![Split](https://img.shields.io/badge/Split-Scaffold%20Aware-0f766e)
+![Sampling](https://img.shields.io/badge/Sampling-Top--k%20%2B%20Top--p-7c3aed)
+![Data](https://img.shields.io/badge/Data-249k%20SMILES-f59e0b)
 
-This project trains a causal Transformer on SMILES strings and uses the trained model to generate new small molecules, score them with RDKit, and explore them in a Streamlit app.
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://small-molecule-design-using-transformer-model-fzvu6ve66dz8h8zf.streamlit.app)
 
-The current repository includes:
-- a causal Transformer model in `src/model.py`
-- a training pipeline with scaffold split, deduplication, early stopping, and checkpoint saving
-- a generation script with safer sampling controls
-- an evaluation script that reports validity, uniqueness, novelty, diversity, and property summaries
-- a Streamlit frontend for interactive molecule generation and analysis
-- a trained checkpoint in `checkpoints/best_model.pt`
+Generate novel small molecules as SMILES strings with a Transformer-based PyTorch pipeline designed for molecular sequence modeling, RDKit validation, and interactive exploration. The project includes training, CLI generation, property estimation, and a Streamlit UI for fast experimentation.
 
-## Tools Used
+> The model is specialized for autoregressive SMILES continuation: give it a fragment such as `C`, `N`, or `c1ccccc1`, sample the next tokens, then inspect chemical validity, QED, MW, LogP, and related metrics.
 
-- [Python](https://www.python.org/) for the project runtime and scripts
-- [PyTorch](https://pytorch.org/) for the Transformer model and training loop
-- [RDKit](https://www.rdkit.org/) for SMILES validation and molecular property calculation
-- [Streamlit](https://streamlit.io/) for the interactive frontend
-- [Plotly](https://plotly.com/python/) for charts in the app
-- [scikit-learn](https://scikit-learn.org/stable/) for the t-SNE projection in the chemical-space view
+## What This Model Is Specialized For
 
-## Live Demo
+- SMILES language modeling with causal masking so each token only attends to previous chemical context.
+- Fragment-conditioned generation from short seeds, scaffold-like prompts, or partial SMILES prefixes.
+- Safer sampling via `top_k`, `top_p`, repetition penalties, minimum new-token constraints, and invalid-molecule filtering.
+- Chemistry-first postprocessing with RDKit validity checks, molecular descriptors, and dashboard visualization.
+- Rapid ideation rather than full 3D or protein-conditioned design; 3D conformers are generated after sequence sampling.
 
-- [Streamlit App](https://small-molecule-design-using-transformer-model-fzvu6ve66dz8h8zf.streamlit.app)
+## Technical Snapshot
 
-## Project Goal
+| Item | Value |
+| --- | --- |
+| Model family | Causal Transformer encoder for autoregressive SMILES generation |
+| Core implementation | `nn.TransformerEncoder` with causal mask, GELU activation, `norm_first=True`, and final `LayerNorm` |
+| Tokenizer | Regex-based SMILES tokenizer with `<PAD>`, `<SOS>`, `<EOS>`, `<UNK>` |
+| Dataset in repo | `249,455` SMILES strings in `data/smiles.txt` |
+| Current training defaults | `d_model=256`, `nhead=8`, `num_layers=4`, `dim_feedforward=1024`, `max_len=60`, `dropout=0.2` |
+| Attention head width | `32` dims per head |
+| Approx. parameters (current architecture at `vocab_size=65`) | `3,192,897` |
+| Inference controls | `temperature`, `top_k`, `top_p`, `repetition_penalty`, `min_new_tokens`, `max_repeat_run` |
+| Validation stack | RDKit descriptors + Lipinski filtering logic in `src/property.py` |
 
-The goal is to generate drug-like SMILES strings that are:
-- chemically valid
-- diverse
-- reasonably drug-like by simple property filters
-- easy to inspect through a lightweight app and CLI workflow
+## Parameter Breakdown
 
-## Repository Layout
+Current architecture parameter count, computed at `vocab_size=65` to match the packaged checkpoint metadata:
 
-- `src/model.py`: causal Transformer model
-- `src/train.py`: training loop
-- `src/generate.py`: autoregressive generation
-- `src/evaluate.py`: batch evaluation and saved metrics
-- `src/property.py`: RDKit property calculation
-- `src/analytics.py`: diversity and chemical-space helpers
-- `streamlit_app.py`: interactive frontend
-- `data/smiles.txt`: training data file
-- `checkpoints/`: trained checkpoints and loss history
+| Component | Parameters |
+| --- | ---: |
+| Token embedding | `16,640` |
+| Transformer encoder stack | `3,159,552` |
+| Output projection head | `16,705` |
+| Total | `3,192,897` |
 
-## Install
+## Generation Pipeline
+
+```mermaid
+flowchart LR
+    A["Seed fragment"] --> B["SMILES tokenizer"]
+    B --> C["Embedding + positional encoding"]
+    C --> D["4-layer causal Transformer encoder"]
+    D --> E["Vocabulary projection"]
+    E --> F["Sampling: temperature + top-k/top-p + repetition controls"]
+    F --> G["Generated SMILES"]
+    G --> H["RDKit validation + properties + 3D conformer"]
+```
+
+## Quick Start
+
+### Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Run the App
+### Launch the dashboard
 
 ```bash
 python -m streamlit run streamlit_app.py
 ```
 
-## Generate Molecules
-
-Use the included checkpoint:
+### Generate molecules
 
 ```bash
-python src/generate.py --seed_token C --num_molecules 10 --checkpoint checkpoints/best_model.pt
+python src/generate.py --seed_token "N" --num_molecules 5 --temperature 0.8 --top_k 50 --top_p 0.95
 ```
 
-Useful seed examples:
-- `C`
-- `N`
-- `O`
-- `CC`
-- `CO`
-- `CN`
-- `c1ccccc1`
-- `NC(=O)`
-
-## Evaluate a Checkpoint
-
-This is the recommended way to judge a trained model.
+### Generate with stronger anti-repetition controls
 
 ```bash
-python src/evaluate.py --num_molecules 100 --checkpoint checkpoints/best_model.pt
+python src/generate.py --seed_token "C" --num_molecules 10 --temperature 0.85 --top_k 40 --top_p 0.92 --repetition_penalty 1.2 --min_new_tokens 8 --max_repeat_run 4
 ```
 
-Outputs:
-- `checkpoints/best_model_evaluation.csv`
-- `checkpoints/best_model_evaluation.json`
-
-Reported metrics include:
-- validity
-- uniqueness
-- novelty against `data/smiles.txt`
-- diversity
-- average QED
-- average MW
-- average LogP
-- average SA score
-- Lipinski pass rate
-
-## Train From Scratch
-
-If you already have `data/smiles.txt`:
+### Score a molecule
 
 ```bash
-python src/train.py --epochs 20 --batch_size 64 --max_len 60 --dropout 0.2 --lr 3e-4 --split_method scaffold --dedup --num_workers 2 --save_last
+python src/property.py --smiles "c1ccccc1"
 ```
 
-Training outputs:
-- `checkpoints/best_model.pt`
-- `checkpoints/last_model.pt`
-- `checkpoints/loss_history.csv`
+## Training
 
-## Prepare Data From a ZINC Zip
+1. Place one SMILES string per line in `data/smiles.txt`.
+2. Optionally preprocess with:
 
 ```bash
-python src/load_zinc.py --zip_path path/to/zinc.zip --max_molecules 250000
+python src/load_zinc.py
 ```
 
-This writes the extracted SMILES file to `data/smiles.txt` unless you pass `--output`.
+3. Train the model:
 
-## Current Model Setup
+```bash
+python src/train.py --epochs 10 --batch_size 64 --max_len 60 --split_method scaffold --dedup
+```
 
-The included checkpoint was trained with:
-- `d_model=256`
-- `nhead=8`
-- `num_layers=4`
-- `dim_feedforward=1024`
-- `max_len=60`
-- `dropout=0.2`
+4. Optional runtime tuning for CPU-heavy environments:
 
-The training script uses:
-- canonicalization before splitting
-- optional deduplication
-- scaffold split by default
-- AdamW
-- label smoothing
-- gradient clipping
-- early stopping
+```bash
+python src/train.py --epochs 5 --batch_size 64 --num_workers 0 --no_pin_memory
+```
 
-## Why Evaluation Should Be Part of the Workflow
+<details>
+<summary>Training defaults from <code>src/train.py</code></summary>
 
-Loss alone is not enough for this project.
+| Argument | Default |
+| --- | --- |
+| `epochs` | `20` |
+| `lr` | `3e-4` |
+| `batch_size` | `64` |
+| `max_len` | `60` |
+| `d_model` | `256` |
+| `nhead` | `8` |
+| `num_layers` | `4` |
+| `dropout` | `0.2` |
+| `val_split` | `0.1` |
+| `split_method` | `scaffold` |
+| `dedup` | `True` |
+| `num_workers` | `2` |
+| `pin_memory` | `True` on CUDA |
+| `patience` | `8` |
+| `min_delta` | `1e-4` |
+| `weight_decay` | `1e-2` |
+| `label_smoothing` | `0.05` |
+| `checkpoint_name` | `best_model.pt` |
 
-A model can show a lower validation loss and still generate weak molecules. Running `src/evaluate.py` after training gives you a checkpoint report you can compare across runs. That helps you:
-- choose the best checkpoint by generation quality, not just loss
-- measure validity and diversity honestly
-- see whether molecules are novel relative to the training data
-- save a JSON or CSV record for README, app, or future experiments
+Training also uses `AdamW`, `OneCycleLR`, gradient clipping at `1.0`, and AMP automatically on CUDA.
+</details>
 
-Recommended workflow:
-1. train a checkpoint
-2. run `src/evaluate.py`
-3. compare metrics between runs
-4. use the best checkpoint in the app
+<details>
+<summary>Checkpoint compatibility note for technical users</summary>
 
-## Streamlit Notes
+The packaged `checkpoints/best_model.pt` contains metadata for an older decoder-style checkpoint, not the current encoder-style `src/model.py`. Its saved config is `d_model=256`, `nhead=8`, `num_layers=4`, `dim_feedforward=1024`, `max_len=100`, `dropout=0.3`, `vocab_size=65`, with `4,272,705` parameters in the saved state dict. If you want to use that checkpoint exactly as shipped, you need the matching older decoder model class; if you want to use the current code path, retrain and save a fresh checkpoint from the current architecture.
+</details>
 
-The app is meant for interactive exploration, not for benchmarking. For real model comparison, use `src/evaluate.py`.
+<details>
+<summary>Notes for technical readers</summary>
 
-The training-loss chart is available in a collapsed diagnostics section so the main UI stays focused on generation results.
-
-## Known Limitations
-
-- evaluation is still based on simple property and diversity metrics, not target-specific activity
-- the app is exploratory and not a production cheminformatics tool
-- automated tests are still limited
-- the included chemical-space view is qualitative, not a rigorous benchmark
-
-## Suggested Next Improvements
-
-- add unit tests for tokenizer, generation, and evaluation
-- surface evaluation JSON directly inside the app
-- clean remaining UI text and packaging details
-- add checkpoint comparison in the frontend
+- The model operates on linearized SMILES tokens, not molecular graphs.
+- The tokenizer recognizes bracketed atoms, aromatic lower-case atoms, ring indices, bond symbols, and halogens such as `Cl` and `Br`.
+- Scaffold-aware validation splitting in `src/train.py` is intended to reduce train/validation leakage from structurally similar compounds.
+- 3D structures shown in the app are computed with RDKit after generation, not predicted directly by the network.
+</details>
