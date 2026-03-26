@@ -18,14 +18,14 @@ except Exception:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train Molecule Transformer")
-    parser.add_argument("--epochs",     type=int,   default=30)
+    parser.add_argument("--epochs",     type=int,   default=20)
     parser.add_argument("--lr",         type=float, default=3e-4)
     parser.add_argument("--batch_size", type=int,   default=128)
-    parser.add_argument("--max_len",    type=int,   default=100)
+    parser.add_argument("--max_len",    type=int,   default=60)
     parser.add_argument("--d_model",    type=int,   default=256)
     parser.add_argument("--nhead",      type=int,   default=8)
     parser.add_argument("--num_layers", type=int,   default=4)
-    parser.add_argument("--dropout",    type=float, default=0.3)
+    parser.add_argument("--dropout",    type=float, default=0.2)
     parser.add_argument("--seed",       type=int,   default=42)
     parser.add_argument("--val_split",  type=float, default=0.1)
     parser.add_argument("--patience",   type=int,   default=8)
@@ -34,6 +34,11 @@ def parse_args():
     parser.add_argument("--label_smoothing", type=float, default=0.05)
     parser.add_argument("--dedup", action="store_true", default=True)
     parser.add_argument("--no_dedup", action="store_true")
+    parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--pin_memory", action="store_true", default=True)
+    parser.add_argument("--no_pin_memory", action="store_true")
+    parser.add_argument("--checkpoint_name", type=str, default="best_model.pt")
+    parser.add_argument("--save_last", action="store_true")
     parser.add_argument(
         "--split_method",
         choices=["random", "scaffold"],
@@ -118,10 +123,13 @@ def train():
     args = parse_args()
     if args.no_dedup:
         args.dedup = False
+    if args.no_pin_memory:
+        args.pin_memory = False
 
     set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pin_memory = args.pin_memory and device.type == "cuda"
     print(f"[Train] Using device: {device}")
     if torch.cuda.is_available():
         print(f"[Train] GPU: {torch.cuda.get_device_name(0)}")
@@ -155,15 +163,17 @@ def train():
 
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
-        num_workers=2, pin_memory=True
+        num_workers=args.num_workers, pin_memory=pin_memory
     )
     val_loader = DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False,
-        num_workers=2, pin_memory=True
+        num_workers=args.num_workers, pin_memory=pin_memory
     )
 
     print(f"[Train] Train samples : {train_size}")
     print(f"[Train] Val   samples : {val_size}")
+    print(f"[Train] Num workers   : {args.num_workers}")
+    print(f"[Train] Pin memory    : {pin_memory}")
     print(f"[Train] Batches/epoch : {len(train_loader)}\n")
 
     model_config = {
@@ -177,6 +187,7 @@ def train():
 
     model = MoleculeTransformer(
         vocab_size  = tokenizer.vocab_size,
+        pad_token_id = tokenizer.pad_token_id,
         **model_config
     ).to(device)
 
@@ -217,13 +228,13 @@ def train():
             input_ids  = input_ids.to(device, non_blocking=True)
             target_ids = target_ids.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 logits = model(input_ids)
                 loss   = criterion(
-                    logits.view(-1, tokenizer.vocab_size),
-                    target_ids.view(-1)
+                    logits.reshape(-1, tokenizer.vocab_size),
+                    target_ids.reshape(-1)
                 )
 
             scaler.scale(loss).backward()
@@ -246,8 +257,8 @@ def train():
                 with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                     logits = model(input_ids)
                     loss   = criterion(
-                        logits.view(-1, tokenizer.vocab_size),
-                        target_ids.view(-1)
+                        logits.reshape(-1, tokenizer.vocab_size),
+                        target_ids.reshape(-1)
                     )
                 val_loss += loss.item()
 
@@ -272,7 +283,7 @@ def train():
             patience_counter = 0
             save_model(
                 model, tokenizer,
-                get_checkpoint_path("best_model.pt"),
+                get_checkpoint_path(args.checkpoint_name),
                 model_config
             )
             print(f"  ✓ Best model saved (val={best_val_loss:.4f})")
@@ -283,6 +294,14 @@ def train():
                 print(f"\n[Early Stop] Stopped at epoch {epoch}")
                 break
 
+    if args.save_last:
+        save_model(
+            model,
+            tokenizer,
+            get_checkpoint_path("last_model.pt"),
+            model_config,
+        )
+
     csv_path = get_checkpoint_path("loss_history.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["epoch", "train_loss", "val_loss", "lr"])
@@ -292,7 +311,7 @@ def train():
     print(f"\n[OK] Training complete!")
     print(f"[OK] Best val loss : {best_val_loss:.4f}")
     print(f"[OK] Loss history  : {csv_path}")
-    print(f"[OK] Best model    : {get_checkpoint_path('best_model.pt')}")
+    print(f"[OK] Best model    : {get_checkpoint_path(args.checkpoint_name)}")
 
 
 if __name__ == "__main__":

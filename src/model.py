@@ -35,33 +35,43 @@ class MoleculeTransformer(nn.Module):
         pad_token_id=0,
     ):
         super().__init__()
-        self.d_model      = d_model
+        self.d_model = d_model
         self.pad_token_id = pad_token_id
-        self.vocab_size   = vocab_size
+        self.vocab_size = vocab_size
 
-        self.embedding   = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
+        self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
         self.emb_dropout = nn.Dropout(p=dropout)
         self.pos_encoder = PositionalEncoding(d_model, max_len, dropout)
 
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model         = d_model,
-            nhead           = nhead,
-            dim_feedforward = dim_feedforward,
-            dropout         = dropout,
-            batch_first     = True,
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
         )
-        self.transformer_decoder = nn.TransformerDecoder(
-            decoder_layer, num_layers=num_layers
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
+            norm=nn.LayerNorm(d_model),
+            enable_nested_tensor=False,
         )
 
         self.output_head = nn.Linear(d_model, vocab_size)
         self._init_weights()
 
     def _init_weights(self):
-        nn.init.xavier_uniform_(self.embedding.weight)
-        nn.init.xavier_uniform_(self.output_head.weight)
+        nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
+        if self.embedding.padding_idx is not None:
+            with torch.no_grad():
+                self.embedding.weight[self.embedding.padding_idx].zero_()
+
+        nn.init.normal_(self.output_head.weight, mean=0.0, std=0.02)
         nn.init.zeros_(self.output_head.bias)
-        for name, p in self.transformer_decoder.named_parameters():
+
+        for name, p in self.transformer.named_parameters():
             if "weight" in name and p.dim() > 1:
                 nn.init.xavier_uniform_(p)
             elif "bias" in name:
@@ -74,21 +84,19 @@ class MoleculeTransformer(nn.Module):
         )
 
     def forward(self, x):
-        seq_len      = x.size(1)
-        device       = x.device
-        causal_mask  = self._generate_causal_mask(seq_len, device)
+        seq_len = x.size(1)
+        device = x.device
+        causal_mask = self._generate_causal_mask(seq_len, device)
         padding_mask = (x == self.pad_token_id)
 
         emb = self.embedding(x) * math.sqrt(self.d_model)
         emb = self.emb_dropout(emb)
         emb = self.pos_encoder(emb)
 
-        out = self.transformer_decoder(
-            tgt                     = emb,
-            memory                  = emb,
-            tgt_mask                = causal_mask,
-            tgt_key_padding_mask    = padding_mask,
-            memory_key_padding_mask = padding_mask,
+        out = self.transformer(
+            src=emb,
+            mask=causal_mask,
+            src_key_padding_mask=padding_mask,
         )
 
         return self.output_head(out)
