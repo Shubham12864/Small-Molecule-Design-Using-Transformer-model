@@ -1,14 +1,34 @@
 # Molecular Transformer for Small Molecule Generation
 
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![RDKit](https://img.shields.io/badge/RDKit-Cheminformatics-138A36)](https://www.rdkit.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Plotly](https://img.shields.io/badge/Plotly-Analytics-3F4F75?logo=plotly&logoColor=white)](https://plotly.com/python/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-tSNE-F7931E?logo=scikitlearn&logoColor=white)](https://scikit-learn.org/stable/)
+
 This project trains a causal Transformer on SMILES strings and uses the trained model to generate new small molecules, score them with RDKit, and explore them in a Streamlit app.
 
 The current repository includes:
-- a corrected GPT-style causal model in `src/model.py`
+- a causal Transformer model in `src/model.py`
 - a training pipeline with scaffold split, deduplication, early stopping, and checkpoint saving
 - a generation script with safer sampling controls
 - an evaluation script that reports validity, uniqueness, novelty, diversity, and property summaries
 - a Streamlit frontend for interactive molecule generation and analysis
 - a trained checkpoint in `checkpoints/best_model.pt`
+
+## Tools Used
+
+- [Python](https://www.python.org/) for the project runtime and scripts
+- [PyTorch](https://pytorch.org/) for the Transformer model and training loop
+- [RDKit](https://www.rdkit.org/) for SMILES validation and molecular property calculation
+- [Streamlit](https://streamlit.io/) for the interactive frontend
+- [Plotly](https://plotly.com/python/) for charts in the app
+- [scikit-learn](https://scikit-learn.org/stable/) for the t-SNE projection in the chemical-space view
+
+## Live Demo
+
+- [Streamlit App](https://small-molecule-design-using-transformer-model-fzvu6ve66dz8h8zf.streamlit.app)
 
 ## Project Goal
 
