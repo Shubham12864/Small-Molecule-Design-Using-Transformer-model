@@ -30,7 +30,7 @@ class MoleculeTransformer(nn.Module):
         nhead=8,
         num_layers=4,
         dim_feedforward=1024,
-        max_len=128,
+        max_len=512,
         dropout=0.1,
         pad_token_id=0,
     ):

@@ -20,7 +20,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train Molecule Transformer")
     parser.add_argument("--epochs",     type=int,   default=20)
     parser.add_argument("--lr",         type=float, default=3e-4)
-    parser.add_argument("--batch_size", type=int,   default=128)
+    parser.add_argument("--batch_size", type=int,   default=64)
     parser.add_argument("--max_len",    type=int,   default=60)
     parser.add_argument("--d_model",    type=int,   default=256)
     parser.add_argument("--nhead",      type=int,   default=8)
@@ -183,11 +183,11 @@ def train():
         "dim_feedforward": args.d_model * 4,
         "max_len":         args.max_len,
         "dropout":         args.dropout,
+        "pad_token_id":    tokenizer.pad_token_id,
     }
 
     model = MoleculeTransformer(
         vocab_size  = tokenizer.vocab_size,
-        pad_token_id = tokenizer.pad_token_id,
         **model_config
     ).to(device)
 
