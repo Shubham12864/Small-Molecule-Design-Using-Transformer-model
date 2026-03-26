@@ -302,12 +302,18 @@ with col_results:
                             df_pts, x="x", y="y", color="group",
                             color_discrete_map={
                                 "Generated": "#ff6b6b",
-                                "Known Drug": "#555577"
+                                "Known Drug": "#b8b0a1"
                             },
                             title="Chemical Space: Generated vs Known Drugs",
                             custom_data=["label", "smiles", "mw", "logp"],
                         )
                         fig_tsne.update_traces(
+                            marker=dict(size=10, line=dict(width=0)),
+                            hoverlabel=dict(
+                                bgcolor="#111827",
+                                bordercolor="#334155",
+                                font=dict(color="#f8fafc", size=14),
+                            ),
                             hovertemplate=(
                                 "<b>%{customdata[0]}</b><br>"
                                 "SMILES: %{customdata[1]}<br>"
@@ -320,6 +326,11 @@ with col_results:
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)",
                             height=500,
+                            legend=dict(
+                                bgcolor="rgba(15, 23, 42, 0.85)",
+                                bordercolor="#334155",
+                                borderwidth=1,
+                            ),
                         )
                         st.plotly_chart(fig_tsne, use_container_width=True)
 
