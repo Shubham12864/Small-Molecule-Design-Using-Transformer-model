@@ -166,7 +166,7 @@ with col_results:
                     smiles = generate_smiles(
                         model, tokenizer,
                         seed        = seed,
-                        max_len     = 100,
+                        max_len     = 60,
                         temperature = temperature,
                         device      = "cuda" if torch.cuda.is_available() else "cpu"
                     )
