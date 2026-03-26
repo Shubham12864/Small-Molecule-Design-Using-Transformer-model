@@ -122,32 +122,33 @@ with col_settings:
                               use_container_width=True)
 
     st.divider()
-    st.subheader("📈 Training History")
-    loss_csv = get_checkpoint_path("loss_history.csv")
-    if os.path.exists(loss_csv):
-        df_loss = pd.read_csv(loss_csv)
-        fig_loss = go.Figure()
-        fig_loss.add_trace(go.Scatter(
-            x=df_loss["epoch"], y=df_loss["train_loss"],
-            name="Train Loss", line=dict(color="#667eea", width=2)
-        ))
-        fig_loss.add_trace(go.Scatter(
-            x=df_loss["epoch"], y=df_loss["val_loss"],
-            name="Val Loss", line=dict(color="#ff6b6b", width=2, dash="dash")
-        ))
-        fig_loss.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=250,
-            margin=dict(l=0, r=0, t=30, b=0),
-            title="Train vs Val Loss",
-            xaxis_title="Epoch",
-            yaxis_title="Loss",
-        )
-        st.plotly_chart(fig_loss, use_container_width=True)
-    else:
-        st.caption("Train the model to see loss curves here.")
+    with st.expander("Model Training Details", expanded=False):
+        st.caption("Optional diagnostics for the trained checkpoint.")
+        loss_csv = get_checkpoint_path("loss_history.csv")
+        if os.path.exists(loss_csv):
+            df_loss = pd.read_csv(loss_csv)
+            fig_loss = go.Figure()
+            fig_loss.add_trace(go.Scatter(
+                x=df_loss["epoch"], y=df_loss["train_loss"],
+                name="Train Loss", line=dict(color="#667eea", width=2)
+            ))
+            fig_loss.add_trace(go.Scatter(
+                x=df_loss["epoch"], y=df_loss["val_loss"],
+                name="Val Loss", line=dict(color="#ff6b6b", width=2, dash="dash")
+            ))
+            fig_loss.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                height=250,
+                margin=dict(l=0, r=0, t=30, b=0),
+                title="Train vs Val Loss",
+                xaxis_title="Epoch",
+                yaxis_title="Loss",
+            )
+            st.plotly_chart(fig_loss, use_container_width=True)
+        else:
+            st.caption("Train the model to see loss curves here.")
 
 
 with col_results:
