@@ -30,6 +30,7 @@ def parse_args():
 def generate_smiles(model, tokenizer, seed="C", max_len=100,
                     temperature=1.0, device="cpu"):
     model.eval()
+    model_max_len = model.pos_encoder.pe.size(1)
 
     tokens      = [tokenizer.sos_token_id]
     seed_tokens = SMILES_PATTERN.findall(seed)
@@ -45,6 +46,8 @@ def generate_smiles(model, tokenizer, seed="C", max_len=100,
 
     with torch.no_grad():
         for _ in range(max_len):
+            if len(tokens) >= model_max_len:
+                break
             input_tensor = torch.tensor(
                 [tokens], dtype=torch.long, device=device
             )
@@ -77,11 +80,17 @@ def main():
     model, tokenizer_data = load_model(MoleculeTransformer, checkpoint_path)
     model = model.to(device)
     model.eval()
+    model_max_len = model.pos_encoder.pe.size(1)
 
     tokenizer            = SmilesTokenizer()
     tokenizer.stoi       = tokenizer_data["stoi"]
     tokenizer.itos       = {int(k): v for k, v in tokenizer_data["itos"].items()}
     tokenizer.vocab_size = tokenizer_data["vocab_size"]
+
+    effective_max_len = min(args.max_len, model_max_len)
+    if args.max_len > model_max_len:
+        print(f"[Generate] Requested max_len={args.max_len} exceeds "
+              f"checkpoint limit {model_max_len}. Using {model_max_len}.")
 
     print(f"\n[Generate] Seed: '{args.seed_token}' | "
           f"Target: {args.num_molecules} molecules | "
@@ -97,7 +106,7 @@ def main():
         smiles = generate_smiles(
             model, tokenizer,
             seed        = args.seed_token,
-            max_len     = args.max_len,
+            max_len     = effective_max_len,
             temperature = args.temperature,
             device      = device
         )
