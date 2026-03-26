@@ -76,7 +76,6 @@ def build_train_val_split(smiles_list, val_split, seed, split_method, dedup):
         processed.append(canon)
 
     if dedup:
-        # dict preserves insertion order in modern Python.
         processed = list(dict.fromkeys(processed))
 
     if len(processed) < 2:
