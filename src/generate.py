@@ -19,6 +19,34 @@ except ImportError:
     RDKIT_AVAILABLE = False
 
 
+def check_validity(smiles):
+    props = compute_properties(smiles)
+    return bool(props and props.get("valid", False))
+
+
+def _apply_top_k_top_p(logits, top_k=0, top_p=1.0):
+    filtered = logits.clone()
+    vocab_size = filtered.size(-1)
+
+    if top_k > 0 and top_k < vocab_size:
+        threshold = torch.topk(filtered, top_k).values[-1]
+        filtered[filtered < threshold] = float("-inf")
+
+    if 0.0 < top_p < 1.0:
+        sorted_logits, sorted_indices = torch.sort(filtered, descending=True)
+        sorted_probs = torch.softmax(sorted_logits, dim=-1)
+        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+        sorted_indices_to_remove = cumulative_probs > top_p
+        sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+        sorted_indices_to_remove[0] = False
+
+        indices_to_remove = sorted_indices[sorted_indices_to_remove]
+        filtered[indices_to_remove] = float("-inf")
+
+    return filtered
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate SMILES molecules")
     parser.add_argument("--seed_token", type=str, default="C")
@@ -30,15 +58,41 @@ def parse_args():
         help="Total sequence length. Defaults to the checkpoint context window.",
     )
     parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top_k", type=int, default=50)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--repetition_penalty", type=float, default=1.15)
+    parser.add_argument("--min_new_tokens", type=int, default=8)
+    parser.add_argument("--max_repeat_run", type=int, default=4)
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--allow_invalid", action="store_true")
     return parser.parse_args()
 
 
-def generate_smiles(model, tokenizer, seed="C", max_len=None, temperature=1.0, device="cpu"):
+def generate_smiles(
+    model,
+    tokenizer,
+    seed="C",
+    max_len=None,
+    temperature=1.0,
+    device=None,
+    top_k=50,
+    top_p=0.95,
+    repetition_penalty=1.15,
+    min_new_tokens=8,
+    max_repeat_run=4,
+):
     model.eval()
-    model_max_len = model.pos_encoder.pe.size(1)
-    effective_max_len = model_max_len if max_len is None else min(max_len, model_max_len)
+
+    model_device = next(model.parameters()).device
+    if device is None:
+        device = model_device
+    else:
+        device = torch.device(device)
+        if device != model_device:
+            device = model_device
+
+    model_ctx_len = int(model.pos_encoder.pe.size(1))
+    effective_max_len = model_ctx_len if max_len is None else min(max_len, model_ctx_len)
 
     tokens = [tokenizer.sos_token_id]
     seed_tokens = SMILES_PATTERN.findall(seed)
@@ -52,19 +106,62 @@ def generate_smiles(model, tokenizer, seed="C", max_len=None, temperature=1.0, d
             else:
                 print(f"  [Warn] Token '{tok}' not in vocabulary. Skipping.")
 
-    with torch.no_grad():
-        for _ in range(effective_max_len):
-            if len(tokens) >= effective_max_len:
-                break
+    if len(tokens) >= effective_max_len:
+        return tokenizer.decode(tokens[:effective_max_len])
 
+    initial_token_count = len(tokens)
+    blocked_token_ids = {
+        tokenizer.pad_token_id,
+        tokenizer.sos_token_id,
+        tokenizer.unk_token_id,
+    }
+
+    with torch.no_grad():
+        max_new_tokens = effective_max_len - len(tokens)
+        for _ in range(max_new_tokens):
             input_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
             logits = model(input_tensor)
-            next_logits = logits[0, -1, :]
+            raw_next_logits = logits[0, -1, :].float()
+            next_logits = raw_next_logits.clone()
+
+            for tok_id in blocked_token_ids:
+                if 0 <= tok_id < next_logits.numel():
+                    next_logits[tok_id] = float("-inf")
+
+            if repetition_penalty > 1.0:
+                for tok_id in set(tokens):
+                    if tok_id in blocked_token_ids:
+                        continue
+                    if 0 <= tok_id < next_logits.numel():
+                        if next_logits[tok_id] > 0:
+                            next_logits[tok_id] /= repetition_penalty
+                        else:
+                            next_logits[tok_id] *= repetition_penalty
+
+            generated_so_far = len(tokens) - initial_token_count
+            if generated_so_far < min_new_tokens and 0 <= tokenizer.eos_token_id < next_logits.numel():
+                next_logits[tokenizer.eos_token_id] = float("-inf")
+
+            if max_repeat_run > 0 and len(tokens) >= max_repeat_run:
+                last_token = tokens[-1]
+                if all(tok == last_token for tok in tokens[-max_repeat_run:]):
+                    next_logits[last_token] = float("-inf")
+
+            next_logits = _apply_top_k_top_p(next_logits, top_k=top_k, top_p=top_p)
+
+            if torch.isneginf(next_logits).all():
+                next_logits = raw_next_logits.clone()
+                for tok_id in blocked_token_ids:
+                    if 0 <= tok_id < next_logits.numel():
+                        next_logits[tok_id] = float("-inf")
 
             if temperature <= 0:
                 next_token_id = torch.argmax(next_logits).item()
             else:
-                probs = torch.softmax(next_logits / temperature, dim=-1)
+                scaled_logits = next_logits / max(float(temperature), 1e-6)
+                probs = torch.softmax(scaled_logits, dim=-1)
+                if torch.isnan(probs).any() or float(probs.sum()) <= 0.0:
+                    probs = torch.softmax(raw_next_logits / max(float(temperature), 1e-6), dim=-1)
                 next_token_id = torch.multinomial(probs, num_samples=1).item()
 
             if next_token_id in (tokenizer.eos_token_id, tokenizer.pad_token_id):
@@ -87,7 +184,7 @@ def main():
     model, tokenizer_data = load_model(MoleculeTransformer, checkpoint_path)
     model = model.to(device)
     model.eval()
-    model_max_len = model.pos_encoder.pe.size(1)
+    model_max_len = int(model.pos_encoder.pe.size(1))
 
     tokenizer = SmilesTokenizer()
     tokenizer.stoi = tokenizer_data["stoi"]
@@ -123,6 +220,11 @@ def main():
             max_len=effective_max_len,
             temperature=args.temperature,
             device=device,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+            min_new_tokens=args.min_new_tokens,
+            max_repeat_run=args.max_repeat_run,
         )
 
         props = compute_properties(smiles)

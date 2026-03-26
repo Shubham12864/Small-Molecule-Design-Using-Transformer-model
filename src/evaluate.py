@@ -46,6 +46,11 @@ def parse_args():
         help="Generation length. Defaults to the checkpoint context window.",
     )
     parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top_k", type=int, default=50)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--repetition_penalty", type=float, default=1.15)
+    parser.add_argument("--min_new_tokens", type=int, default=8)
+    parser.add_argument("--max_repeat_run", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--train_data",
@@ -229,6 +234,11 @@ def main():
             max_len=effective_max_len,
             temperature=args.temperature,
             device=device,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+            min_new_tokens=args.min_new_tokens,
+            max_repeat_run=args.max_repeat_run,
         )
 
         props = compute_properties(smiles)
@@ -268,6 +278,11 @@ def main():
             "checkpoint": checkpoint_path,
             "seed_token": args.seed_token,
             "temperature": args.temperature,
+            "top_k": args.top_k,
+            "top_p": args.top_p,
+            "repetition_penalty": args.repetition_penalty,
+            "min_new_tokens": args.min_new_tokens,
+            "max_repeat_run": args.max_repeat_run,
             "max_len": effective_max_len,
             "seed": args.seed,
         }
