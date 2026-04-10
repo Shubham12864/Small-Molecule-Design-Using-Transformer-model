@@ -18,7 +18,7 @@ The current system is designed to:
 
 - SMILES tokenization and language modeling
 - Transformer-based next-token prediction
-- scaffold-aware train/validation splitting
+- random or scaffold-aware train/validation/test splitting with reusable split artifacts
 - RDKit validity and descriptor computation
 - interactive molecule generation through Streamlit
 - basic chemical-space analytics for generated batches
@@ -36,16 +36,17 @@ The current system is designed to:
 ```mermaid
 flowchart LR
     A["data/smiles.txt"] --> B["Canonicalize + optional dedup"]
-    B --> C["Random or scaffold split"]
-    C --> D["Regex SMILES tokenizer"]
-    D --> E["SmilesDataset"]
-    E --> F["DataLoader"]
-    F --> G["Causal Transformer model"]
-    G --> H["Cross-entropy training"]
-    H --> I["Checkpoint + loss history"]
-    I --> J["CLI + Streamlit inference"]
-    J --> K["RDKit validation and descriptors"]
-    K --> L["3D conformer + analytics dashboard"]
+    B --> C["Random or scaffold train/val/test split"]
+    C --> D["Save or reuse split artifacts"]
+    D --> E["Regex SMILES tokenizer"]
+    E --> F["SmilesDataset"]
+    F --> G["DataLoader"]
+    G --> H["Causal Transformer model"]
+    H --> I["Cross-entropy training"]
+    I --> J["Checkpoint + loss history"]
+    J --> K["CLI + Streamlit inference"]
+    K --> L["RDKit validation and descriptors"]
+    L --> M["Offline evaluator + analytics dashboard"]
 ```
 
 ## 4. Repository Components
@@ -55,8 +56,10 @@ flowchart LR
 | `src/tokenizer.py` | Regex-based SMILES tokenization and vocab management |
 | `src/dataset.py` | Converts tokenized SMILES into padded autoregressive training pairs |
 | `src/model.py` | Causal Transformer encoder used for next-token prediction |
-| `src/train.py` | End-to-end training loop with split logic, optimization, and checkpointing |
+| `src/train.py` | End-to-end training loop with split logic, optimization, checkpointing, and split artifact management |
+| `src/splits.py` | Canonicalization, deduplication, train/val/test split construction, and split save/load helpers |
 | `src/generate.py` | Seeded autoregressive generation with safer sampling controls |
+| `src/evaluate.py` | Offline generation evaluation with novelty, diversity, and held-out overlap reporting |
 | `src/property.py` | RDKit-based validity checks and molecular descriptors |
 | `src/analytics.py` | Diversity, t-SNE chemical-space projection, and known-drug similarity |
 | `streamlit_app.py` | UI for generation, 3D visualization, and analytics |
@@ -75,16 +78,17 @@ Observed dataset size in the current repo:
 
 ### Preprocessing Strategy
 
-Training-time preprocessing in `src/train.py` includes:
+Training-time preprocessing in `src/train.py` and `src/splits.py` includes:
 
 - canonicalization with RDKit when available
 - removal of invalid SMILES before splitting
 - optional deduplication
-- train/validation split using either:
+- train/validation/test split using either:
   - `random`
   - `scaffold` based on Murcko scaffolds
+- optional persistence of split artifacts for reproducible reruns
 
-The default split method is scaffold-based to reduce structural leakage between training and validation samples.
+The default split method is scaffold-based to reduce structural leakage across training, validation, and test sets.
 
 ## 6. Tokenization Design
 
@@ -199,6 +203,7 @@ The current training pipeline uses:
 | `max_len` | `60` |
 | `dropout` | `0.2` |
 | `val_split` | `0.1` |
+| `test_split` | `0.1` |
 | `patience` | `8` |
 | `min_delta` | `1e-4` |
 | `weight_decay` | `1e-2` |
@@ -206,14 +211,21 @@ The current training pipeline uses:
 | `num_workers` | `2` |
 | `split_method` | `scaffold` |
 | `dedup` | `True` |
+| `output_dir` | `checkpoints/` |
+| `split_dir` | auto-generated under `data/splits/` |
+| `reuse_split` | `False` |
 
 ### Training Outputs
 
 Training writes:
 
-- `checkpoints/best_model.pt`
-- optionally `checkpoints/last_model.pt`
-- `checkpoints/loss_history.csv`
+- `<output_dir>/<checkpoint_name>` or a numbered variant when the requested path already exists
+- optionally `<output_dir>/<checkpoint_stem>_last_model.pt`
+- `<output_dir>/<checkpoint_stem>_loss_history.csv`
+- `data/splits/<tag>/train.txt`
+- `data/splits/<tag>/val.txt`
+- `data/splits/<tag>/test.txt`
+- `data/splits/<tag>/metadata.json`
 
 ## 9. Generation Design
 
@@ -251,7 +263,28 @@ It also blocks:
 
 And it can reject invalid molecules unless `--allow_invalid` is used.
 
-## 10. Property and Chemistry Layer
+## 10. Evaluation Design
+
+`src/evaluate.py` provides an offline reporting path for generation quality.
+
+It supports:
+
+- validity rate
+- uniqueness rate
+- novelty against a training reference set
+- overlap checking against a held-out test set
+- diversity based on pairwise Tanimoto distance
+- descriptor summaries including QED, MW, LogP, SA score, and TPSA
+
+The evaluator can consume either:
+
+- the default `data/smiles.txt` corpus
+- explicit reference files
+- a saved split directory produced by `src/train.py`
+
+This makes the CLI evaluator the preferred path for report-style metrics, while the Streamlit app remains more exploratory.
+
+## 11. Property and Chemistry Layer
 
 `src/property.py` evaluates each generated SMILES using RDKit.
 
@@ -271,7 +304,7 @@ Computed outputs include:
 
 This chemistry layer is a post-generation filter and scorer. It does not constrain the neural model during decoding.
 
-## 11. Analytics and UI Design
+## 12. Analytics and UI Design
 
 ### Streamlit Product Flow
 
@@ -280,7 +313,7 @@ The app provides:
 - a seed input field
 - number-of-molecules control
 - temperature slider
-- checkpoint loading via cached resource initialization
+- checkpoint selection from saved `.pt` files under `checkpoints/`
 - result cards with SMILES and descriptor summaries
 - on-the-fly 3D conformer generation using RDKit + `py3Dmol`
 
@@ -308,34 +341,32 @@ The analytics layer computes:
 
 The app can compare generated molecules against `data/known_drugs.csv` using Tanimoto similarity and report top matches.
 
-## 12. Current Implementation Note
+## 13. Current Implementation Note
 
-There is an important repo-level caveat:
+The codebase is centered on a causal Transformer encoder trained autoregressively on SMILES data.
 
-- the current `src/model.py` defines an encoder-style causal Transformer
-- the packaged `checkpoints/best_model.pt` contains metadata from an older decoder-style checkpoint
+The current implementation also includes:
 
-That means:
+- deterministic train/validation/test split artifacts for reproducible experiments
+- an offline evaluator for novelty and held-out overlap
+- an interactive Streamlit app for qualitative inspection across multiple saved checkpoints
 
-- the design target of the codebase is the current encoder-style model
-- the packaged historical checkpoint is not architecture-compatible with that current code path
-- a fresh retraining run is the cleanest way to fully align code, checkpoints, app behavior, and documentation
+One practical caveat is that report-style novelty and held-out metrics still live mainly in the CLI evaluator, while the app remains lighter-weight and exploratory.
 
-This should be treated as a project consistency issue, not as intended long-term design.
-
-## 13. Limitations
+## 14. Limitations
 
 - Generation is syntax-driven and not conditioned on target activity or assay outcomes.
 - Chemical validity is checked after generation rather than enforced during decoding.
 - The system models linearized SMILES, not graphs or 3D geometry directly.
-- The dashboard is intended for exploration, not benchmark-grade evaluation.
+- The Streamlit dashboard is intended for exploration; report-style metrics are handled mainly through the CLI evaluator.
 - t-SNE plots are qualitative and depend on the sampled batch.
-- No automated test suite currently guarantees model-checkpoint compatibility.
+- No automated test suite currently guarantees model-checkpoint compatibility or end-to-end CLI stability.
+- Relative and absolute checkpoint paths should both be exercised more thoroughly on Windows shells before public release.
 
-## 14. Recommended Next Steps
+## 15. Recommended Next Steps
 
-- retrain and save a checkpoint that matches the current encoder architecture
 - add automated tests for tokenizer, model loading, and generation
+- align Streamlit analytics with CLI evaluation metrics such as uniqueness, novelty, and held-out overlap
+- improve checkpoint and experiment-output isolation for repeated runs even further, especially if multiple users share the same workspace
 - surface checkpoint metadata directly in the app
-- add a dedicated evaluation script or evaluation section if benchmark reporting becomes a first-class goal
 - add screenshot assets to make documentation and the project narrative stronger

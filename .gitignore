@@ -9,3 +9,7 @@ __pycache__/
 _tmp_model_extract/
 checkpoints/*_evaluation.csv
 checkpoints/*_evaluation.json
+data/splits/
+data/Dataset.csv
+checkpoints/last_model.pt
+checkpoints/model.pt

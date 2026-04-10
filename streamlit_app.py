@@ -57,6 +57,52 @@ def generate_3d_mol_block(smiles):
         return None
 
 
+def canonicalize_smiles(smiles):
+    if not RDKIT_AVAILABLE:
+        return smiles
+
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        return Chem.MolToSmiles(mol, canonical=True)
+    except Exception:
+        return None
+
+
+def list_checkpoint_paths():
+    checkpoints_root = os.path.dirname(get_checkpoint_path("best_model.pt"))
+    checkpoint_paths = []
+
+    for root, _, files in os.walk(checkpoints_root):
+        for filename in files:
+            if filename.endswith(".pt"):
+                checkpoint_paths.append(os.path.join(root, filename))
+
+    checkpoint_paths.sort()
+    return checkpoint_paths
+
+
+def get_default_checkpoint(checkpoint_paths):
+    preferred_path = get_checkpoint_path("best_model.pt")
+    if preferred_path in checkpoint_paths:
+        return preferred_path
+    return checkpoint_paths[0] if checkpoint_paths else None
+
+
+def get_loss_history_path(checkpoint_path):
+    checkpoint_dir = os.path.dirname(checkpoint_path)
+    checkpoint_stem = os.path.splitext(os.path.basename(checkpoint_path))[0]
+    paired_history = os.path.join(checkpoint_dir, f"{checkpoint_stem}_loss_history.csv")
+    legacy_history = os.path.join(checkpoint_dir, "loss_history.csv")
+
+    if os.path.exists(paired_history):
+        return paired_history
+    if os.path.exists(legacy_history):
+        return legacy_history
+    return None
+
+
 st.set_page_config(page_title="AI Molecular Engine", page_icon="M", layout="wide")
 
 st.markdown(
@@ -92,8 +138,7 @@ st.divider()
 
 
 @st.cache_resource
-def get_model():
-    checkpoint_path = get_checkpoint_path("best_model.pt")
+def get_model(checkpoint_path):
     if not os.path.exists(checkpoint_path):
         return None, None
 
@@ -114,20 +159,33 @@ def get_model():
     return model, tokenizer
 
 
-model, tokenizer = get_model()
+checkpoint_paths = list_checkpoint_paths()
+default_checkpoint = get_default_checkpoint(checkpoint_paths)
 
-if model is None:
-    st.error("Could not load model checkpoint. Please train the model first.")
+if default_checkpoint is None:
+    st.error("Could not find any model checkpoints. Please train the model first.")
     st.code("python src/train.py --epochs 20")
     st.stop()
-
-model_device = next(model.parameters()).device
-model_max_len = int(model.pos_encoder.pe.size(1))
 
 col_settings, col_results = st.columns([1, 2.5], gap="large")
 
 with col_settings:
     st.header("Settings")
+    selected_checkpoint = st.selectbox(
+        "Checkpoint",
+        options=checkpoint_paths,
+        index=checkpoint_paths.index(default_checkpoint),
+        format_func=lambda path: os.path.relpath(path, os.getcwd()),
+        help="Choose which saved checkpoint to explore in the app.",
+    )
+    model, tokenizer = get_model(selected_checkpoint)
+    if model is None:
+        st.error(f"Could not load checkpoint: {selected_checkpoint}")
+        st.stop()
+
+    model_device = next(model.parameters()).device
+    model_max_len = int(model.pos_encoder.pe.size(1))
+
     seed = st.text_input(
         "Seed Token",
         value="C",
@@ -150,8 +208,8 @@ with col_settings:
     st.divider()
     with st.expander("Model Training Details", expanded=False):
         st.caption("Optional diagnostics for the trained checkpoint.")
-        loss_csv = get_checkpoint_path("loss_history.csv")
-        if os.path.exists(loss_csv):
+        loss_csv = get_loss_history_path(selected_checkpoint)
+        if loss_csv:
             df_loss = pd.read_csv(loss_csv)
             fig_loss = go.Figure()
             fig_loss.add_trace(
@@ -193,6 +251,7 @@ with col_results:
             st.header("Discovery Results")
             with st.spinner("Generating molecules..."):
                 results = []
+                seen_canonical = set()
                 attempts = 0
                 max_attempts = num_molecules * 10
 
@@ -209,10 +268,16 @@ with col_results:
                     props = compute_properties(smiles)
                     if not props["valid"]:
                         continue
+                    canonical_smiles = canonicalize_smiles(smiles)
+                    if canonical_smiles is None or canonical_smiles in seen_canonical:
+                        continue
+
+                    seen_canonical.add(canonical_smiles)
 
                     results.append(
                         {
                             "smiles": smiles,
+                            "canonical_smiles": canonical_smiles,
                             "molblock": generate_3d_mol_block(smiles),
                             "mw": props["mw"],
                             "logp": props["logp"],
@@ -229,7 +294,9 @@ with col_results:
                 st.warning("No valid molecules generated. Try a different seed or adjust temperature.")
             else:
                 if len(results) < num_molecules:
-                    st.info(f"Found {len(results)} valid molecules from {attempts} attempts.")
+                    st.info(
+                        f"Found {len(results)} unique valid molecules from {attempts} attempts."
+                    )
 
                 grid_cols = st.columns(3)
                 for idx, res in enumerate(results):
@@ -264,12 +331,20 @@ with col_results:
                 with tab_analytics:
                     stats = compute_batch_stats(results, attempts)
 
-                    m1, m2, m3, m4, m5 = st.columns(5)
+                    m1, m2, m3, m4, m5, m6 = st.columns(6)
                     for col, label, value in zip(
-                        [m1, m2, m3, m4, m5],
-                        ["Validity", "Diversity", "Avg QED", "Avg MW", "Lipinski Pass"],
+                        [m1, m2, m3, m4, m5, m6],
+                        [
+                            "Validity",
+                            "Unique Valid",
+                            "Diversity",
+                            "Avg QED",
+                            "Avg MW",
+                            "Lipinski Pass",
+                        ],
                         [
                             f"{stats['validity_rate']}%",
+                            f"{stats['num_unique']} ({stats['uniqueness_rate']}%)",
                             stats["diversity"],
                             stats["avg_qed"],
                             stats["avg_mw"],
