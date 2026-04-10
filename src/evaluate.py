@@ -19,6 +19,7 @@ try:
         load_smiles,
         set_seed,
     )
+    from .splits import load_split_artifacts
 except ImportError:
     from analytics import compute_diversity_score
     from generate import generate_smiles
@@ -32,6 +33,7 @@ except ImportError:
         load_smiles,
         set_seed,
     )
+    from splits import load_split_artifacts
 
 try:
     from rdkit import Chem
@@ -72,6 +74,18 @@ def parse_args():
         default=None,
         help="Training SMILES file for novelty checking. Defaults to data/smiles.txt.",
     )
+    parser.add_argument(
+        "--split_dir",
+        type=str,
+        default=None,
+        help="Optional split artifact directory from train.py. Uses train.txt for novelty and test.txt as held-out reference.",
+    )
+    parser.add_argument(
+        "--heldout_data",
+        type=str,
+        default=None,
+        help="Optional held-out SMILES file used to measure test-set overlap.",
+    )
     parser.add_argument("--output_csv", type=str, default=None)
     parser.add_argument("--output_json", type=str, default=None)
     return parser.parse_args()
@@ -96,35 +110,51 @@ def make_output_paths(checkpoint_path, output_csv=None, output_json=None):
     return csv_path, json_path
 
 
-def load_training_reference(train_data_path):
-    if train_data_path is None:
-        train_data_path = get_data_path("smiles.txt")
-
-    if not os.path.exists(train_data_path):
-        print(f"[Eval] Training data not found at: {train_data_path}")
-        print("[Eval] Novelty metrics will be skipped.")
+def load_reference_set(data_path, label):
+    if data_path is None or not os.path.exists(data_path):
+        print(f"[Eval] {label} data not found at: {data_path}")
         return None
 
-    training_smiles = load_smiles(train_data_path)
+    reference_smiles = load_smiles(data_path)
     if not RDKIT_AVAILABLE:
-        return set(training_smiles)
+        return set(reference_smiles)
 
     canonical_set = set()
     skipped = 0
-    for smi in training_smiles:
+    for smi in reference_smiles:
         canonical = canonicalize_smiles(smi)
         if canonical is None:
             skipped += 1
             continue
         canonical_set.add(canonical)
 
-    print(f"[Eval] Training reference molecules : {len(canonical_set):,}")
+    print(f"[Eval] {label} reference molecules : {len(canonical_set):,}")
     if skipped:
-        print(f"[Eval] Training reference skipped : {skipped:,}")
+        print(f"[Eval] {label} reference skipped : {skipped:,}")
     return canonical_set
 
 
-def summarise_rows(rows, training_reference=None):
+def resolve_reference_paths(args):
+    train_data_path = args.train_data
+    heldout_data_path = args.heldout_data
+
+    if args.split_dir:
+        split_data, _ = load_split_artifacts(args.split_dir)
+        default_train = os.path.join(args.split_dir, "train.txt")
+        default_test = os.path.join(args.split_dir, "test.txt")
+
+        if train_data_path is None and split_data.get("train"):
+            train_data_path = default_train
+        if heldout_data_path is None and split_data.get("test"):
+            heldout_data_path = default_test
+
+    if train_data_path is None:
+        train_data_path = get_data_path("smiles.txt")
+
+    return train_data_path, heldout_data_path
+
+
+def summarise_rows(rows, training_reference=None, heldout_reference=None):
     total = len(rows)
     valid_rows = [row for row in rows if row["valid"]]
     valid_canonical = [row["canonical_smiles"] for row in valid_rows if row["canonical_smiles"]]
@@ -134,6 +164,11 @@ def summarise_rows(rows, training_reference=None):
     novel_canonical = []
     if novelty_available:
         novel_canonical = [smi for smi in unique_valid_canonical if smi not in training_reference]
+
+    heldout_available = heldout_reference is not None
+    heldout_hits = []
+    if heldout_available:
+        heldout_hits = [smi for smi in unique_valid_canonical if smi in heldout_reference]
 
     lipinski_pass = sum(1 for row in valid_rows if row["lipinski"])
 
@@ -155,6 +190,11 @@ def summarise_rows(rows, training_reference=None):
         "novel_unique_count": len(novel_canonical) if novelty_available else None,
         "novelty_rate": round(100 * len(novel_canonical) / max(len(unique_valid_canonical), 1), 1)
         if novelty_available
+        else None,
+        "heldout_available": heldout_available,
+        "heldout_hit_count": len(heldout_hits) if heldout_available else None,
+        "heldout_hit_rate": round(100 * len(heldout_hits) / max(len(unique_valid_canonical), 1), 1)
+        if heldout_available
         else None,
         "diversity": round(compute_diversity_score(unique_valid_canonical), 3)
         if len(unique_valid_canonical) >= 2
@@ -230,7 +270,9 @@ def main():
         print(f"[Eval] Requested max_len={args.max_len} exceeds checkpoint limit {model_max_len}.")
         print(f"[Eval] Using max_len={model_max_len} instead.")
 
-    training_reference = load_training_reference(args.train_data)
+    train_data_path, heldout_data_path = resolve_reference_paths(args)
+    training_reference = load_reference_set(train_data_path, "Training")
+    heldout_reference = load_reference_set(heldout_data_path, "Held-out") if heldout_data_path else None
 
     print(
         f"[Eval] Sampling {args.num_molecules} molecules | "
@@ -286,7 +328,11 @@ def main():
         }
         rows.append(row)
 
-    summary = summarise_rows(rows, training_reference=training_reference)
+    summary = summarise_rows(
+        rows,
+        training_reference=training_reference,
+        heldout_reference=heldout_reference,
+    )
     summary.update(
         {
             "checkpoint": checkpoint_path,
@@ -299,6 +345,8 @@ def main():
             "max_repeat_run": args.max_repeat_run,
             "max_len": effective_max_len,
             "seed": args.seed,
+            "train_reference_path": train_data_path,
+            "heldout_reference_path": heldout_data_path,
         }
     )
 
@@ -317,6 +365,10 @@ def main():
         print(f"  Novel Unique    : {summary['novel_unique_count']} ({summary['novelty_rate']}%)")
     else:
         print("  Novel Unique    : N/A")
+    if summary["heldout_available"]:
+        print(f"  Held-out Hits   : {summary['heldout_hit_count']} ({summary['heldout_hit_rate']}%)")
+    else:
+        print("  Held-out Hits   : N/A")
     print(f"  Diversity       : {summary['diversity']}")
     print(f"  Avg QED         : {summary['avg_qed']}")
     print(f"  Avg MW          : {summary['avg_mw']}")

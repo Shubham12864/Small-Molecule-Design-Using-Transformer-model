@@ -35,6 +35,7 @@ Generate novel small molecules as SMILES strings with a Transformer-based PyTorc
 | Approx. parameters (current architecture at `vocab_size=65`) | `3,192,897` |
 | Inference controls | `temperature`, `top_k`, `top_p`, `repetition_penalty`, `min_new_tokens`, `max_repeat_run` |
 | Validation stack | RDKit descriptors + Lipinski filtering logic in `src/property.py` |
+| Offline evaluation | Validity, uniqueness, novelty, held-out overlap, diversity, and descriptor summaries via `src/evaluate.py` |
 
 ## Parameter Breakdown
 
@@ -95,22 +96,57 @@ python src/property.py --smiles "c1ccccc1"
 ## Training
 
 1. Place one SMILES string per line in `data/smiles.txt`.
-2. Optionally preprocess with:
+2. Or preprocess a ZINC-style archive with:
 
 ```bash
-python src/load_zinc.py
+python src/load_zinc.py --zip_path /path/to/zinc_archive.zip
 ```
 
 3. Train the model:
 
 ```bash
-python src/train.py --epochs 10 --batch_size 64 --max_len 60 --split_method scaffold --dedup
+python src/train.py --epochs 10 --batch_size 64 --max_len 60 --split_method scaffold --val_split 0.1 --test_split 0.1 --dedup
 ```
 
-4. Optional runtime tuning for CPU-heavy environments:
+4. Reuse an existing split for repeatable experiments:
+
+```bash
+python src/train.py --reuse_split --split_dir data/splits/scaffold_seed42_val10_test10 --epochs 10
+```
+
+5. Optional runtime tuning for CPU-heavy environments:
 
 ```bash
 python src/train.py --epochs 5 --batch_size 64 --num_workers 0 --no_pin_memory
+```
+
+Training now saves deterministic split artifacts under `data/splits/<tag>/` by default. Each split directory contains:
+
+- `train.txt`
+- `val.txt`
+- `test.txt`
+- `metadata.json`
+
+## Evaluation
+
+Run the offline evaluator for report-ready metrics:
+
+```bash
+python src/evaluate.py --num_molecules 100 --seed_token C
+```
+
+Evaluate against a saved split directory to measure novelty against the training split and overlap with the held-out test split:
+
+```bash
+python src/evaluate.py --num_molecules 100 --seed_token C --split_dir data/splits/scaffold_seed42_val10_test10
+```
+
+## Quick Checks
+
+Run the lightweight built-in smoke tests:
+
+```bash
+python -m unittest discover -s tests
 ```
 
 <details>
@@ -127,6 +163,7 @@ python src/train.py --epochs 5 --batch_size 64 --num_workers 0 --no_pin_memory
 | `num_layers` | `4` |
 | `dropout` | `0.2` |
 | `val_split` | `0.1` |
+| `test_split` | `0.1` |
 | `split_method` | `scaffold` |
 | `dedup` | `True` |
 | `num_workers` | `2` |
@@ -136,14 +173,17 @@ python src/train.py --epochs 5 --batch_size 64 --num_workers 0 --no_pin_memory
 | `weight_decay` | `1e-2` |
 | `label_smoothing` | `0.05` |
 | `checkpoint_name` | `best_model.pt` |
+| `output_dir` | `checkpoints/` |
+| `split_dir` | auto-generated under `data/splits/` |
+| `reuse_split` | `False` |
 
 Training also uses `AdamW`, `OneCycleLR`, gradient clipping at `1.0`, and AMP automatically on CUDA.
 </details>
 
 <details>
-<summary>Checkpoint compatibility note for technical users</summary>
+<summary>Checkpoint and experiment note for technical users</summary>
 
-The packaged `checkpoints/best_model.pt` contains metadata for an older decoder-style checkpoint, not the current encoder-style `src/model.py`. Its saved config is `d_model=256`, `nhead=8`, `num_layers=4`, `dim_feedforward=1024`, `max_len=100`, `dropout=0.3`, `vocab_size=65`, with `4,272,705` parameters in the saved state dict. If you want to use that checkpoint exactly as shipped, you need the matching older decoder model class; if you want to use the current code path, retrain and save a fresh checkpoint from the current architecture.
+The packaged `checkpoints/best_model.pt` is intended to load with the current encoder-style `src/model.py`. New training runs write under `checkpoints/` by default, but `src/train.py` now avoids overwriting an existing checkpoint by creating a numbered variant such as `best_model_1.pt`. Paired loss curves are saved as `<checkpoint_stem>_loss_history.csv`, and you can route runs to a separate folder with `--output_dir`.
 </details>
 
 <details>
@@ -151,6 +191,8 @@ The packaged `checkpoints/best_model.pt` contains metadata for an older decoder-
 
 - The model operates on linearized SMILES tokens, not molecular graphs.
 - The tokenizer recognizes bracketed atoms, aromatic lower-case atoms, ring indices, bond symbols, and halogens such as `Cl` and `Br`.
-- Scaffold-aware validation splitting in `src/train.py` is intended to reduce train/validation leakage from structurally similar compounds.
+- `src/train.py` supports random or scaffold-aware train/validation/test splitting, plus saved split artifacts for reproducible experiments.
+- `src/evaluate.py` is the preferred path for report-style metrics such as novelty and held-out overlap; the Streamlit app is primarily exploratory.
+- `streamlit_app.py` can browse any saved checkpoint under `checkpoints/`, rather than assuming a single fixed artifact.
 - 3D structures shown in the app are computed with RDKit after generation, not predicted directly by the network.
 </details>
